@@ -1,0 +1,24 @@
+{
+  "name": "graphview",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c cyan,magenta \"npm run dev -w packages/backend\" \"npm run dev -w packages/frontend\"",
+    "build": "npm run build -w packages/backend && npm run build -w packages/frontend",
+    "test": "npm run test -w packages/backend && npm run test -w packages/frontend",
+    "lint": "eslint .",
+    "format": "prettier --write \"packages/*/src/**/*.{ts,tsx}\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.20.0",
+    "@typescript-eslint/eslint-plugin": "^8.24.0",
+    "@typescript-eslint/parser": "^8.24.0",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.20.0",
+    "prettier": "^3.4.2"
+  }
+}
