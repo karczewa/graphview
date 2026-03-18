@@ -10,6 +10,7 @@ interface GraphState {
   error: string | null;
   fetchGraph: (limit?: number) => Promise<void>;
   runQuery: (cypher: string) => Promise<void>;
+  expandNode: (id: string, depth?: number) => Promise<void>;
   clear: () => void;
 }
 
@@ -37,6 +38,26 @@ export const useGraphStore = create<GraphState>((set) => ({
       set({ nodes: data.nodes, edges: data.edges, metadata: data.metadata, loading: false });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'Query failed', loading: false });
+    }
+  },
+
+  expandNode: async (id, depth = 1) => {
+    set({ loading: true, error: null });
+    try {
+      const data = await api.neighbors(id, depth);
+      set((state) => {
+        const existingNodeIds = new Set(state.nodes.map((n) => n.id));
+        const existingEdgeIds = new Set(state.edges.map((e) => e.id));
+        const newNodes = data.nodes.filter((n) => !existingNodeIds.has(n.id));
+        const newEdges = data.edges.filter((e) => !existingEdgeIds.has(e.id));
+        return {
+          nodes: [...state.nodes, ...newNodes],
+          edges: [...state.edges, ...newEdges],
+          loading: false,
+        };
+      });
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Expand failed', loading: false });
     }
   },
 

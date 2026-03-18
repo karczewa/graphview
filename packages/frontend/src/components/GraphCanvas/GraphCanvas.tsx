@@ -61,19 +61,21 @@ export function GraphCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const { nodes, edges } = useGraphStore();
   const { labelConfig } = useMapping();
-  const { selectedNodeId, setSelectedNode } = useUiStore();
+  const { selectedNodeId, highlightedLabel, setSelectedNode } = useUiStore();
 
-  // Ref that bridges the two effects: allows selection-update effect to call
-  // into the D3 selection created by the graph-build effect without rebuilding.
+  // Saved node positions — persisted across rebuilds so layout is preserved
+  // when new nodes are added (expand node) or mapping changes.
+  const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+
+  // Bridge refs: let lightweight effects update visuals without full rebuild.
   const applySelectionRef = useRef<(id: string | null) => void>(() => {});
+  const applyHighlightRef = useRef<(label: string | null) => void>(() => {});
 
   // ── Effect 1: rebuild graph when data or mapping changes ────────────────────
   useEffect(() => {
     if (!svgRef.current) return;
 
     const svg = d3.select(svgRef.current);
-    // Use clientWidth/clientHeight; fall back to sensible defaults if layout
-    // hasn't completed yet (getBoundingClientRect returns 0 during first render).
     const width = svgRef.current.clientWidth || 800;
     const height = svgRef.current.clientHeight || 600;
 
@@ -103,28 +105,40 @@ export function GraphCanvas() {
         .on('zoom', (e) => g.attr('transform', e.transform.toString())),
     );
 
-    // Build simulation data (clone to avoid mutating store)
-    const simNodes: SimNode[] = nodes.map((n) => ({ ...n }));
+    // Build simulation data — restore saved positions so layout is preserved
+    const simNodes: SimNode[] = nodes.map((n) => {
+      const saved = positionsRef.current.get(n.id);
+      return { ...n, x: saved?.x, y: saved?.y };
+    });
     const nodeById = new Map(simNodes.map((n) => [n.id, n]));
 
     const simEdges: SimEdge[] = edges
       .filter((e) => e.source !== e.target && nodeById.has(e.source) && nodeById.has(e.target))
       .map((e: GraphEdge) => ({ ...e }));
 
-    // Simulation — forceX/forceY act as springs (stronger centering than
-    // forceCenter alone, which only repositions the centroid without restoring force).
     const cx = width / 2;
     const cy = height / 2;
+
+    // Scale forces by node count: fewer nodes → more spread; more nodes → tighter clusters.
+    // sqrt(n) gives a natural curve that doesn't over-compress large graphs.
+    const n = simNodes.length;
+    const sqrtN = Math.sqrt(Math.max(1, n));
+    const chargeStrength = -Math.min(800, Math.max(150, 4000 / sqrtN));
+    const linkDistance   =  Math.min(200, Math.max(60,  1200 / sqrtN));
+    const collisionR     =  Math.min(60,  Math.max(25,   400 / sqrtN));
+    const centerStrength =  Math.min(0.08, Math.max(0.01, n / 3000));
+
     const simulation = d3
       .forceSimulation<SimNode>(simNodes)
-      .force(
-        'link',
-        d3.forceLink<SimNode, SimEdge>(simEdges).id((d) => d.id).distance(100),
-      )
-      .force('charge', d3.forceManyBody<SimNode>().strength(-200))
-      .force('x', d3.forceX<SimNode>(cx).strength(0.08))
-      .force('y', d3.forceY<SimNode>(cy).strength(0.08))
-      .force('collision', d3.forceCollide<SimNode>(28));
+      .force('link', d3.forceLink<SimNode, SimEdge>(simEdges).id((d) => d.id).distance(linkDistance))
+      .force('charge', d3.forceManyBody<SimNode>().strength(chargeStrength))
+      .force('x', d3.forceX<SimNode>(cx).strength(centerStrength))
+      .force('y', d3.forceY<SimNode>(cy).strength(centerStrength))
+      .force('collision', d3.forceCollide<SimNode>(collisionR))
+      // Higher velocityDecay = more friction = settles faster without jitter.
+      .velocityDecay(0.65)
+      // Cool down quicker so the graph stops wiggling sooner.
+      .alphaDecay(0.04);
 
     // Groups (links behind nodes)
     const linkGroup = g.append('g').attr('class', 'links');
@@ -135,17 +149,10 @@ export function GraphCanvas() {
       .selectAll<SVGLineElement, SimEdge>('line')
       .data(simEdges)
       .join('line')
-      .attr('stroke', (d) => {
-        const cfg = useMapping.getState().edgeConfig[d.type];
-        return cfg?.color ?? '#4b5563';
-      })
-      .attr('stroke-width', (d) => {
-        const cfg = useMapping.getState().edgeConfig[d.type];
-        return cfg?.width ?? 1.5;
-      })
+      .attr('stroke', (d) => useMapping.getState().edgeConfig[d.type]?.color ?? '#4b5563')
+      .attr('stroke-width', (d) => useMapping.getState().edgeConfig[d.type]?.width ?? 1.5)
       .attr('marker-end', 'url(#arrow)');
 
-    // Edge type labels
     const edgeLabelEl = linkGroup
       .selectAll<SVGTextElement, SimEdge>('text')
       .data(simEdges)
@@ -157,39 +164,41 @@ export function GraphCanvas() {
       .text((d) => d.type);
 
     // ── Nodes ──
+    const currentSelectedId = useUiStore.getState().selectedNodeId;
+    const currentHighlight = useUiStore.getState().highlightedLabel;
+
     const nodeEl = nodeGroup
       .selectAll<SVGGElement, SimNode>('g')
       .data(simNodes)
       .join('g')
       .attr('cursor', 'pointer')
+      .attr('opacity', (d) =>
+        currentHighlight && d.primaryLabel !== currentHighlight ? 0.15 : 1,
+      )
       .on('click', (event, d) => {
         event.stopPropagation();
         setSelectedNode(d.id === useUiStore.getState().selectedNodeId ? null : d.id);
       })
       .call(
-        d3
-          .drag<SVGGElement, SimNode>()
+        d3.drag<SVGGElement, SimNode>()
           .on('start', (event, d) => {
             if (!event.active) simulation.alphaTarget(0.3).restart();
-            d.fx = d.x;
-            d.fy = d.y;
+            d.fx = d.x; d.fy = d.y;
           })
-          .on('drag', (event, d) => {
-            d.fx = event.x;
-            d.fy = event.y;
-          })
+          .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
           .on('end', (event, d) => {
             if (!event.active) simulation.alphaTarget(0);
-            d.fx = null;
-            d.fy = null;
+            d.fx = null; d.fy = null;
           }),
       );
 
-    const currentSelectedId = useUiStore.getState().selectedNodeId;
-
     nodeEl.each(function (d) {
       const config = labelConfig[d.primaryLabel] ?? DEFAULT_CONFIG;
-      appendShape(d3.select(this) as unknown as d3.Selection<SVGGElement, SimNode, SVGGElement, unknown>, config, d.id === currentSelectedId);
+      appendShape(
+        d3.select(this) as unknown as d3.Selection<SVGGElement, SimNode, SVGGElement, unknown>,
+        config,
+        d.id === currentSelectedId,
+      );
     });
 
     nodeEl
@@ -201,21 +210,23 @@ export function GraphCanvas() {
       .attr('pointer-events', 'none')
       .text((d) => (d.properties['name'] as string) ?? d.primaryLabel);
 
-    // Deselect on background click
     svg.on('click', () => setSelectedNode(null));
 
-    // ── Selection update function (called by Effect 2) ────────────────────────
-    applySelectionRef.current = (id: string | null) => {
+    // ── Bridge functions for Effects 2 & 3 ────────────────────────────────────
+    applySelectionRef.current = (id) => {
       nodeEl.each(function (d) {
-        const isSelected = d.id === id;
-        d3.select(this)
-          .select('.node-shape')
-          .attr('stroke', isSelected ? '#f59e0b' : '#1e293b')
-          .attr('stroke-width', isSelected ? 3 : 1.5);
+        const sel = d.id === id;
+        d3.select(this).select('.node-shape')
+          .attr('stroke', sel ? '#f59e0b' : '#1e293b')
+          .attr('stroke-width', sel ? 3 : 1.5);
       });
     };
 
-    // ── Tick ─────────────────────────────────────────────────────────────────
+    applyHighlightRef.current = (label) => {
+      nodeEl.attr('opacity', (d) => (label && d.primaryLabel !== label ? 0.15 : 1));
+    };
+
+    // ── Tick ──────────────────────────────────────────────────────────────────
     simulation.on('tick', () => {
       linkEl.each(function (d) {
         const src = d.source as SimNode;
@@ -223,17 +234,13 @@ export function GraphCanvas() {
         const sx = src.x ?? 0, sy = src.y ?? 0;
         const tx = tgt.x ?? 0, ty = tgt.y ?? 0;
         const angle = Math.atan2(ty - sy, tx - sx);
-
         const srcCfg = labelConfig[src.primaryLabel] ?? DEFAULT_CONFIG;
         const tgtCfg = labelConfig[tgt.primaryLabel] ?? DEFAULT_CONFIG;
         const sa = getAnchorPoint(angle, srcCfg.shape as ShapeType, srcCfg.size / 2);
         const ta = getAnchorPoint(angle + Math.PI, tgtCfg.shape as ShapeType, tgtCfg.size / 2);
-
         d3.select(this)
-          .attr('x1', sx + sa.x)
-          .attr('y1', sy + sa.y)
-          .attr('x2', tx + ta.x)
-          .attr('y2', ty + ta.y);
+          .attr('x1', sx + sa.x).attr('y1', sy + sa.y)
+          .attr('x2', tx + ta.x).attr('y2', ty + ta.y);
       });
 
       edgeLabelEl
@@ -245,21 +252,29 @@ export function GraphCanvas() {
 
     return () => {
       simulation.stop();
+      // Save positions before teardown
+      for (const n of simNodes) {
+        if (n.x !== undefined && n.y !== undefined) {
+          positionsRef.current.set(n.id, { x: n.x, y: n.y });
+        }
+      }
       svg.on('click', null);
       applySelectionRef.current = () => {};
+      applyHighlightRef.current = () => {};
     };
   }, [nodes, edges, labelConfig, setSelectedNode]);
 
-  // ── Effect 2: update selection highlight without rebuilding ─────────────────
+  // ── Effect 2: selection highlight ──────────────────────────────────────────
   useEffect(() => {
     applySelectionRef.current(selectedNodeId);
   }, [selectedNodeId]);
 
+  // ── Effect 3: label highlight ──────────────────────────────────────────────
+  useEffect(() => {
+    applyHighlightRef.current(highlightedLabel);
+  }, [highlightedLabel]);
+
   return (
-    <svg
-      ref={svgRef}
-      className="w-full h-full bg-gray-950"
-      style={{ display: 'block' }}
-    />
+    <svg ref={svgRef} className="w-full h-full bg-gray-950" style={{ display: 'block' }} />
   );
 }
