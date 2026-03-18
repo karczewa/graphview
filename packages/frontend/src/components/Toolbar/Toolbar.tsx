@@ -17,6 +17,15 @@ export function Toolbar() {
   const { runQuery, loading } = useGraphStore();
   const { queryHistory, addToHistory, layoutAlgorithm, setLayoutAlgorithm } = useUiStore();
   const historyRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize textarea to fit content
+  const autoResize = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
 
   const run = () => {
     // Collapse all whitespace (including \r\n Windows line endings) to single spaces.
@@ -50,12 +59,14 @@ export function Toolbar() {
     <div className="flex items-center gap-2 px-3 py-2 bg-gray-900 border-b border-gray-700 flex-shrink-0">
       <div className="flex-1">
         <textarea
+          ref={textareaRef}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => { setQuery(e.target.value); autoResize(); }}
           onKeyDown={handleKeyDown}
           placeholder="MATCH (n) RETURN n LIMIT 50    —    Ctrl+Enter to run"
-          className="w-full bg-gray-800 text-gray-200 text-sm px-3 py-1.5 rounded border border-gray-700 focus:border-blue-500 focus:outline-none resize-none font-mono placeholder-gray-600"
+          className="w-full bg-gray-800 text-gray-200 text-sm px-3 py-1.5 rounded border border-gray-700 focus:border-blue-500 focus:outline-none resize-none font-mono placeholder-gray-600 overflow-hidden"
           rows={1}
+          style={{ minHeight: '2rem', maxHeight: '12rem' }}
           spellCheck={false}
         />
       </div>
@@ -87,6 +98,7 @@ export function Toolbar() {
                   onClick={() => {
                     setQuery(q);
                     setHistoryOpen(false);
+                    setTimeout(autoResize, 0);
                   }}
                 >
                   {q}
