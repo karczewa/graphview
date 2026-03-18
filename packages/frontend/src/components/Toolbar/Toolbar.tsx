@@ -10,7 +10,10 @@ export function Toolbar() {
   const historyRef = useRef<HTMLDivElement>(null);
 
   const run = () => {
-    const q = query.trim();
+    // Collapse all whitespace (including \r\n Windows line endings) to single spaces.
+    // Cypher is whitespace-insensitive so this is always safe and avoids
+    // parser failures with multi-line queries pasted from other sources.
+    const q = query.trim().replace(/\s+/g, ' ');
     if (!q || loading) return;
     addToHistory(q);
     runQuery(q);
