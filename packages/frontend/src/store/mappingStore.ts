@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import type { ShapeType } from '../components/shapes/index.ts';
+import type { GraphNode } from '../types.ts';
 
 export interface VisualConfig {
   color: string;
   shape: ShapeType;
-  size: number; // diameter in px
+  size: number;
 }
 
 export interface EdgeVisualConfig {
@@ -13,10 +14,28 @@ export interface EdgeVisualConfig {
 }
 
 interface MappingState {
-  labelConfig: Record<string, VisualConfig>;
+  // Which node properties drive color and shape
+  colorByProperty: string;
+  shapeByProperty: string;
+
+  // Maps: property value → color/shape
+  colorMap: Record<string, string>;
+  shapeMap: Record<string, ShapeType>;
+
+  // Uniform node size
+  nodeSize: number;
+
+  // Edge styling (unchanged)
   edgeConfig: Record<string, EdgeVisualConfig>;
-  assignDefaults: (labels: string[], edgeTypes: string[]) => void;
-  setLabelConfig: (label: string, config: Partial<VisualConfig>) => void;
+
+  // Actions
+  setColorByProperty: (prop: string) => void;
+  setShapeByProperty: (prop: string) => void;
+  setColorForValue: (value: string, color: string) => void;
+  setShapeForValue: (value: string, shape: ShapeType) => void;
+  setNodeSize: (size: number) => void;
+  assignFromNodes: (nodes: GraphNode[]) => void;
+  assignEdgeDefaults: (edgeTypes: string[]) => void;
   setEdgeConfig: (type: string, config: Partial<EdgeVisualConfig>) => void;
 }
 
@@ -40,49 +59,65 @@ const SHAPES: ShapeType[] = [
 const EDGE_COLORS = ['#6b7280', '#9ca3af', '#4b5563', '#d1d5db'];
 
 export const useMapping = create<MappingState>((set, get) => ({
-  labelConfig: {},
+  colorByProperty: 'database_type',
+  shapeByProperty: 'domain',
+  colorMap: {},
+  shapeMap: {},
+  nodeSize: 40,
   edgeConfig: {},
 
-  assignDefaults: (labels, edgeTypes) => {
-    const { labelConfig, edgeConfig } = get();
-    const newLabelConfig = { ...labelConfig };
-    const newEdgeConfig = { ...edgeConfig };
-    let colorIdx = Object.keys(labelConfig).length;
-    let shapeIdx = Object.keys(labelConfig).length;
+  setColorByProperty: (colorByProperty) => set({ colorByProperty }),
+  setShapeByProperty: (shapeByProperty) => set({ shapeByProperty }),
 
-    for (const label of labels) {
-      if (!newLabelConfig[label]) {
-        newLabelConfig[label] = {
-          color: COLORS[colorIdx % COLORS.length]!,
-          shape: SHAPES[shapeIdx % SHAPES.length]!,
-          size: 40,
-        };
+  setColorForValue: (value, color) =>
+    set((s) => ({ colorMap: { ...s.colorMap, [value]: color } })),
+
+  setShapeForValue: (value, shape) =>
+    set((s) => ({ shapeMap: { ...s.shapeMap, [value]: shape } })),
+
+  setNodeSize: (nodeSize) => set({ nodeSize }),
+
+  assignFromNodes: (nodes) => {
+    const { colorByProperty, shapeByProperty, colorMap, shapeMap } = get();
+
+    const newColorMap = { ...colorMap };
+    const newShapeMap = { ...shapeMap };
+
+    let colorIdx = Object.keys(newColorMap).length;
+    let shapeIdx = Object.keys(newShapeMap).length;
+
+    for (const node of nodes) {
+      const colorVal = String(node.properties[colorByProperty] ?? '');
+      if (colorVal && !newColorMap[colorVal]) {
+        newColorMap[colorVal] = COLORS[colorIdx % COLORS.length]!;
         colorIdx++;
+      }
+
+      const shapeVal = String(node.properties[shapeByProperty] ?? '');
+      if (shapeVal && !newShapeMap[shapeVal]) {
+        newShapeMap[shapeVal] = SHAPES[shapeIdx % SHAPES.length]!;
         shapeIdx++;
       }
     }
 
-    let edgeColorIdx = Object.keys(edgeConfig).length;
+    set({ colorMap: newColorMap, shapeMap: newShapeMap });
+  },
+
+  assignEdgeDefaults: (edgeTypes) => {
+    const { edgeConfig } = get();
+    const newEdgeConfig = { ...edgeConfig };
+    let idx = Object.keys(edgeConfig).length;
     for (const type of edgeTypes) {
       if (!newEdgeConfig[type]) {
         newEdgeConfig[type] = {
-          color: EDGE_COLORS[edgeColorIdx % EDGE_COLORS.length]!,
+          color: EDGE_COLORS[idx % EDGE_COLORS.length]!,
           width: 1.5,
         };
-        edgeColorIdx++;
+        idx++;
       }
     }
-
-    set({ labelConfig: newLabelConfig, edgeConfig: newEdgeConfig });
+    set({ edgeConfig: newEdgeConfig });
   },
-
-  setLabelConfig: (label, config) =>
-    set((s) => ({
-      labelConfig: {
-        ...s.labelConfig,
-        [label]: { ...s.labelConfig[label]!, ...config },
-      },
-    })),
 
   setEdgeConfig: (type, config) =>
     set((s) => ({

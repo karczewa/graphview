@@ -9,6 +9,24 @@ import type { GraphNode, GraphEdge } from '../../types.ts';
 import { canvasActions } from '../../lib/canvasActions.ts';
 import type { LayoutAlgorithm } from '../../store/uiStore.ts';
 
+// Resolve visual config for a node from property-based maps
+function resolveConfig(
+  node: GraphNode,
+  colorByProperty: string,
+  shapeByProperty: string,
+  colorMap: Record<string, string>,
+  shapeMap: Record<string, ShapeType>,
+  nodeSize: number,
+): VisualConfig {
+  const colorVal = String(node.properties[colorByProperty] ?? '');
+  const shapeVal = String(node.properties[shapeByProperty] ?? '');
+  return {
+    color: colorMap[colorVal] ?? '#94a3b8',
+    shape: shapeMap[shapeVal] ?? 'circle',
+    size: nodeSize,
+  };
+}
+
 // ── D3 simulation types ────────────────────────────────────────────────────────
 
 interface SimNode extends SimulationNodeDatum, GraphNode {}
@@ -57,6 +75,8 @@ function nodeOpacity(
   d: SimNode,
   highlightedLabel: string | null,
   searchQuery: string,
+  colorByProperty: string,
+  shapeByProperty: string,
 ): number {
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
@@ -65,7 +85,12 @@ function nodeOpacity(
       Object.values(d.properties).some((v) => String(v).toLowerCase().includes(q));
     return matches ? 1 : 0.08;
   }
-  if (highlightedLabel) return d.primaryLabel === highlightedLabel ? 1 : 0.15;
+  if (highlightedLabel) {
+    const matches =
+      String(d.properties[colorByProperty] ?? '') === highlightedLabel ||
+      String(d.properties[shapeByProperty] ?? '') === highlightedLabel;
+    return matches ? 1 : 0.15;
+  }
   return 1;
 }
 
@@ -134,7 +159,7 @@ function applyLayout(
 export function GraphCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const { nodes, edges } = useGraphStore();
-  const { labelConfig } = useMapping();
+  const { colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize, edgeConfig } = useMapping();
   const {
     selectedNodeId, highlightedLabel, searchQuery,
     pinnedNodeIds, hiddenNodeIds, layoutAlgorithm,
@@ -228,8 +253,8 @@ export function GraphCanvas() {
     const nodeGroup = g.append('g').attr('class', 'nodes');
 
     const linkEl = linkGroup.selectAll<SVGLineElement, SimEdge>('line').data(simEdges).join('line')
-      .attr('stroke', (d) => useMapping.getState().edgeConfig[d.type]?.color ?? '#4b5563')
-      .attr('stroke-width', (d) => useMapping.getState().edgeConfig[d.type]?.width ?? 1.5)
+      .attr('stroke', (d) => edgeConfig[d.type]?.color ?? '#4b5563')
+      .attr('stroke-width', (d) => edgeConfig[d.type]?.width ?? 1.5)
       .attr('marker-end', 'url(#arrow)');
 
     const edgeLabelEl = linkGroup.selectAll<SVGTextElement, SimEdge>('text').data(simEdges).join('text')
@@ -242,7 +267,7 @@ export function GraphCanvas() {
 
     const nodeEl = nodeGroup.selectAll<SVGGElement, SimNode>('g').data(simNodes).join('g')
       .attr('cursor', 'pointer')
-      .attr('opacity', (d) => nodeOpacity(d, curHighlight, curSearch))
+      .attr('opacity', (d) => nodeOpacity(d, curHighlight, curSearch, colorByProperty, shapeByProperty))
       .on('click', (event, d) => {
         event.stopPropagation();
         setSelectedNode(d.id === useUiStore.getState().selectedNodeId ? null : d.id);
@@ -269,7 +294,7 @@ export function GraphCanvas() {
       );
 
     nodeEl.each(function (d) {
-      const config = labelConfig[d.primaryLabel] ?? DEFAULT_CONFIG;
+      const config = resolveConfig(d, colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize);
       appendShape(
         d3.select(this) as unknown as d3.Selection<SVGGElement, SimNode, SVGGElement, unknown>,
         config,
@@ -280,7 +305,7 @@ export function GraphCanvas() {
 
     nodeEl.append('text')
       .attr('text-anchor', 'middle').attr('fill', '#e2e8f0').attr('font-size', '11px')
-      .attr('dy', (d) => (labelConfig[d.primaryLabel]?.size ?? DEFAULT_CONFIG.size) / 2 + 13)
+      .attr('dy', nodeSize / 2 + 13)
       .attr('pointer-events', 'none')
       .text((d) => (d.properties['name'] as string) ?? d.primaryLabel);
 
@@ -297,7 +322,7 @@ export function GraphCanvas() {
     };
 
     applyOpacityRef.current = (hl, sq) => {
-      nodeEl.attr('opacity', (d) => nodeOpacity(d, hl, sq));
+      nodeEl.attr('opacity', (d) => nodeOpacity(d, hl, sq, colorByProperty, shapeByProperty));
     };
 
     // ── Tick function (shared by live simulation and static layouts) ───────────
@@ -306,8 +331,8 @@ export function GraphCanvas() {
         const src = d.source as SimNode, tgt = d.target as SimNode;
         const sx = src.x ?? 0, sy = src.y ?? 0, tx = tgt.x ?? 0, ty = tgt.y ?? 0;
         const angle = Math.atan2(ty - sy, tx - sx);
-        const srcCfg = labelConfig[src.primaryLabel] ?? DEFAULT_CONFIG;
-        const tgtCfg = labelConfig[tgt.primaryLabel] ?? DEFAULT_CONFIG;
+        const srcCfg = resolveConfig(src, colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize);
+        const tgtCfg = resolveConfig(tgt, colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize);
         const sa = getAnchorPoint(angle, srcCfg.shape as ShapeType, srcCfg.size / 2);
         const ta = getAnchorPoint(angle + Math.PI, tgtCfg.shape as ShapeType, tgtCfg.size / 2);
         d3.select(this)
@@ -340,7 +365,7 @@ export function GraphCanvas() {
       applySelectionRef.current = () => {};
       applyOpacityRef.current   = () => {};
     };
-  }, [nodes, edges, labelConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
+  }, [nodes, edges, colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
 
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);

@@ -4,8 +4,6 @@ import { useGraphStore } from '../../store/graphStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 import type { ShapeType } from '../shapes/index.ts';
 
-// ── Mapping editor ─────────────────────────────────────────────────────────────
-
 const PALETTE = [
   '#ef4444', '#f97316', '#f59e0b', '#eab308',
   '#84cc16', '#22c55e', '#14b8a6', '#06b6d4',
@@ -17,38 +15,46 @@ const SHAPES: ShapeType[] = [
   'circle', 'ellipse', 'square', 'diamond', 'triangle', 'pentagon', 'hexagon', 'star',
 ];
 
-function MappingEditor({ label }: { label: string }) {
-  const { labelConfig, setLabelConfig } = useMapping();
-  const cfg = labelConfig[label];
-  if (!cfg) return null;
+// ── Color value editor ────────────────────────────────────────────────────────
 
+function ColorEditor({ value }: { value: string }) {
+  const { colorMap, setColorForValue } = useMapping();
+  const current = colorMap[value] ?? '#94a3b8';
   return (
     <div className="mx-2 mb-1 p-2 bg-gray-800 rounded border border-gray-700">
-      {/* Color palette */}
-      <p className="text-xs text-gray-500 mb-1.5">Color</p>
-      <div className="grid grid-cols-8 gap-1 mb-2">
+      <p className="text-xs text-gray-500 mb-1.5">Color for "{value}"</p>
+      <div className="grid grid-cols-8 gap-1">
         {PALETTE.map((color) => (
           <button
             key={color}
-            onClick={() => setLabelConfig(label, { color })}
+            onClick={() => setColorForValue(value, color)}
             className="w-5 h-5 rounded-sm border-2 transition-transform hover:scale-110"
             style={{
               backgroundColor: color,
-              borderColor: cfg.color === color ? '#f59e0b' : 'transparent',
+              borderColor: current === color ? '#f59e0b' : 'transparent',
             }}
           />
         ))}
       </div>
+    </div>
+  );
+}
 
-      {/* Shape picker */}
-      <p className="text-xs text-gray-500 mb-1.5">Shape</p>
+// ── Shape value editor ────────────────────────────────────────────────────────
+
+function ShapeEditor({ value }: { value: string }) {
+  const { shapeMap, setShapeForValue } = useMapping();
+  const current = shapeMap[value] ?? 'circle';
+  return (
+    <div className="mx-2 mb-1 p-2 bg-gray-800 rounded border border-gray-700">
+      <p className="text-xs text-gray-500 mb-1.5">Shape for "{value}"</p>
       <div className="flex flex-wrap gap-1">
         {SHAPES.map((shape) => (
           <button
             key={shape}
-            onClick={() => setLabelConfig(label, { shape })}
+            onClick={() => setShapeForValue(value, shape)}
             className={`px-2 py-0.5 text-xs rounded transition-colors ${
-              cfg.shape === shape
+              current === shape
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
             }`}
@@ -57,17 +63,6 @@ function MappingEditor({ label }: { label: string }) {
           </button>
         ))}
       </div>
-
-      {/* Size slider */}
-      <p className="text-xs text-gray-500 mt-2 mb-1">Size: {cfg.size}px</p>
-      <input
-        type="range"
-        min={20}
-        max={70}
-        value={cfg.size}
-        onChange={(e) => setLabelConfig(label, { size: Number(e.target.value) })}
-        className="w-full accent-blue-500"
-      />
     </div>
   );
 }
@@ -75,26 +70,37 @@ function MappingEditor({ label }: { label: string }) {
 // ── LeftPanel ─────────────────────────────────────────────────────────────────
 
 export function LeftPanel() {
-  const { labelConfig } = useMapping();
+  const {
+    colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize,
+    setColorByProperty, setShapeByProperty, setNodeSize,
+  } = useMapping();
   const { nodes, metadata } = useGraphStore();
   const { highlightedLabel, setHighlightedLabel, searchQuery, setSearchQuery, hiddenNodeIds, showAllNodes } = useUiStore();
-  const [editingLabel, setEditingLabel] = useState<string | null>(null);
+  const [editingColorVal, setEditingColorVal] = useState<string | null>(null);
+  const [editingShapeVal, setEditingShapeVal] = useState<string | null>(null);
 
-  const labels = metadata?.nodeLabels ?? Object.keys(labelConfig);
+  // Collect all unique property keys from visible nodes (for dropdowns)
+  const propKeys = Array.from(
+    new Set(nodes.flatMap((n) => Object.keys(n.properties)))
+  ).sort();
 
-  // Node count per label
-  const labelCounts = nodes.reduce<Record<string, number>>((acc, n) => {
-    acc[n.primaryLabel] = (acc[n.primaryLabel] ?? 0) + 1;
-    return acc;
-  }, {});
+  // Unique values currently present in the graph for each mapped property
+  const colorValues = Array.from(new Set(
+    nodes.map((n) => String(n.properties[colorByProperty] ?? '')).filter(Boolean)
+  )).sort();
+  const shapeValues = Array.from(new Set(
+    nodes.map((n) => String(n.properties[shapeByProperty] ?? '')).filter(Boolean)
+  )).sort();
 
-  const toggleEdit = (label: string) =>
-    setEditingLabel((prev) => (prev === label ? null : label));
+  const toggleColorEdit = (val: string) =>
+    setEditingColorVal((prev) => (prev === val ? null : val));
+  const toggleShapeEdit = (val: string) =>
+    setEditingShapeVal((prev) => (prev === val ? null : val));
 
   return (
     <div className="h-full flex flex-col bg-gray-900 border-r border-gray-800">
       <div className="px-3 py-2 border-b border-gray-800 space-y-2">
-        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Schema</h2>
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Visual Mapping</h2>
         <input
           type="text"
           value={searchQuery}
@@ -104,52 +110,100 @@ export function LeftPanel() {
         />
       </div>
 
-      <div className="flex-1 overflow-y-auto py-2">
-        {labels.length === 0 ? (
+      <div className="flex-1 overflow-y-auto py-2 space-y-4">
+        {nodes.length === 0 ? (
           <p className="text-xs text-gray-600 px-4 py-4 text-center">No data loaded</p>
         ) : (
           <>
-            <p className="text-xs text-gray-500 px-4 mb-1">Node labels</p>
+            {/* ── Color section ─────────────────────────────────────────── */}
+            <div>
+              <div className="flex items-center gap-2 px-3 mb-1">
+                <p className="text-xs text-gray-500">Color by</p>
+                <select
+                  value={colorByProperty}
+                  onChange={(e) => setColorByProperty(e.target.value)}
+                  className="flex-1 bg-gray-800 text-gray-300 text-xs px-1.5 py-0.5 rounded border border-gray-700 focus:outline-none"
+                >
+                  {propKeys.map((k) => <option key={k} value={k}>{k}</option>)}
+                </select>
+              </div>
 
-            {labels.map((label) => {
-              const cfg = labelConfig[label];
-              const isHighlighted = highlightedLabel === label;
-              const isEditing = editingLabel === label;
-
-              return (
-                <div key={label}>
+              {colorValues.map((val) => (
+                <div key={val}>
                   <div
                     className={`flex items-center gap-2 px-3 py-1 mx-1 rounded cursor-pointer transition-colors ${
-                      isHighlighted ? 'bg-gray-700' : 'hover:bg-gray-800'
+                      highlightedLabel === val ? 'bg-gray-700' : 'hover:bg-gray-800'
                     }`}
-                    onClick={() => setHighlightedLabel(label)}
+                    onClick={() => setHighlightedLabel(val)}
                   >
-                    {/* Color dot — click to open mapping editor */}
                     <button
                       className="w-3 h-3 rounded-full flex-shrink-0 border border-gray-600 hover:scale-125 transition-transform"
-                      style={{ backgroundColor: cfg?.color ?? '#94a3b8' }}
-                      onClick={(e) => { e.stopPropagation(); toggleEdit(label); }}
-                      title="Edit appearance"
+                      style={{ backgroundColor: colorMap[val] ?? '#94a3b8' }}
+                      onClick={(e) => { e.stopPropagation(); toggleColorEdit(val); }}
+                      title="Edit color"
                     />
-                    <span className="text-sm text-gray-300 flex-1 truncate">{label}</span>
-                    {labelCounts[label] !== undefined && (
-                      <span className="text-xs text-gray-600">{labelCounts[label]}</span>
-                    )}
+                    <span className="text-sm text-gray-300 flex-1 truncate">{val}</span>
                   </div>
-
-                  {isEditing && <MappingEditor label={label} />}
+                  {editingColorVal === val && <ColorEditor value={val} />}
                 </div>
-              );
-            })}
+              ))}
+            </div>
 
-            {metadata && metadata.edgeTypes.length > 0 && (
-              <div className="mt-3">
-                <p className="text-xs text-gray-500 px-4 mb-1">Relationships</p>
-                {metadata.edgeTypes.map((type) => (
+            {/* ── Shape section ─────────────────────────────────────────── */}
+            <div>
+              <div className="flex items-center gap-2 px-3 mb-1">
+                <p className="text-xs text-gray-500">Shape by</p>
+                <select
+                  value={shapeByProperty}
+                  onChange={(e) => setShapeByProperty(e.target.value)}
+                  className="flex-1 bg-gray-800 text-gray-300 text-xs px-1.5 py-0.5 rounded border border-gray-700 focus:outline-none"
+                >
+                  {propKeys.map((k) => <option key={k} value={k}>{k}</option>)}
+                </select>
+              </div>
+
+              {shapeValues.map((val) => (
+                <div key={val}>
                   <div
-                    key={type}
-                    className="flex items-center gap-2 px-3 py-1 mx-1 rounded hover:bg-gray-800 cursor-default"
+                    className={`flex items-center gap-2 px-3 py-1 mx-1 rounded cursor-pointer transition-colors ${
+                      highlightedLabel === val ? 'bg-gray-700' : 'hover:bg-gray-800'
+                    }`}
+                    onClick={() => setHighlightedLabel(val)}
                   >
+                    <span className="text-xs text-gray-500 flex-shrink-0 w-12 truncate">
+                      {shapeMap[val] ?? 'circle'}
+                    </span>
+                    <span className="text-sm text-gray-300 flex-1 truncate">{val}</span>
+                  </div>
+                  {editingShapeVal === val && <ShapeEditor value={val} />}
+                </div>
+              ))}
+              {shapeValues.length > 0 && (
+                <button
+                  className="mx-3 mt-1 text-xs text-gray-600 hover:text-gray-400"
+                  onClick={() => setEditingShapeVal(editingShapeVal ? null : shapeValues[0]!)}
+                >
+                  {editingShapeVal ? '▴ close editor' : '▾ edit shapes'}
+                </button>
+              )}
+            </div>
+
+            {/* ── Node size ─────────────────────────────────────────────── */}
+            <div className="px-3">
+              <p className="text-xs text-gray-500 mb-1">Node size: {nodeSize}px</p>
+              <input
+                type="range" min={20} max={70} value={nodeSize}
+                onChange={(e) => setNodeSize(Number(e.target.value))}
+                className="w-full accent-blue-500"
+              />
+            </div>
+
+            {/* ── Relationships ─────────────────────────────────────────── */}
+            {metadata && metadata.edgeTypes.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-500 px-3 mb-1">Relationships</p>
+                {metadata.edgeTypes.map((type) => (
+                  <div key={type} className="flex items-center gap-2 px-3 py-1 mx-1">
                     <span className="w-3 h-0.5 bg-gray-600 flex-shrink-0" />
                     <span className="text-sm text-gray-400 truncate">{type}</span>
                   </div>

@@ -7,23 +7,26 @@ import { api } from './api/client.ts';
 import { canvasActions } from './lib/canvasActions.ts';
 
 export default function App() {
-  const { fetchGraph } = useGraphStore();
-  const { assignDefaults } = useMapping();
+  const { fetchGraph, nodes } = useGraphStore();
+  const { assignFromNodes, assignEdgeDefaults } = useMapping();
 
   useEffect(() => {
-    // Load schema first to set up visual mapping, then fetch graph
     api.schema()
       .then((schema) => {
-        assignDefaults(schema.nodeLabels, schema.relationshipTypes);
+        assignEdgeDefaults(schema.relationshipTypes);
         return fetchGraph(200);
       })
-      .catch(() => fetchGraph(200)); // schema optional — graph still loads
-  }, [fetchGraph, assignDefaults]);
+      .catch(() => fetchGraph(200));
+  }, [fetchGraph, assignEdgeDefaults]);
+
+  // Re-assign visual mapping whenever nodes change
+  useEffect(() => {
+    if (nodes.length > 0) assignFromNodes(nodes);
+  }, [nodes, assignFromNodes]);
 
   // Global keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      // Ignore when typing in an input/textarea
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
