@@ -2,30 +2,14 @@ import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3';
 import { useGraphStore } from '../../store/graphStore.ts';
-import { useMapping, type VisualConfig } from '../../store/mappingStore.ts';
+import { useMapping, resolveNodeConfig } from '../../store/mappingStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 import { getAnchorPoint, getShapePath, type ShapeType } from '../shapes/index.ts';
 import type { GraphNode, GraphEdge } from '../../types.ts';
 import { canvasActions } from '../../lib/canvasActions.ts';
+import { LABEL_CONFIGS } from '../../store/mappingStore.ts';
 import type { LayoutAlgorithm } from '../../store/uiStore.ts';
-
-// Resolve visual config for a node from property-based maps
-function resolveConfig(
-  node: GraphNode,
-  colorByProperty: string,
-  shapeByProperty: string,
-  colorMap: Record<string, string>,
-  shapeMap: Record<string, ShapeType>,
-  nodeSize: number,
-): VisualConfig {
-  const colorVal = String(node.properties[colorByProperty] ?? '');
-  const shapeVal = String(node.properties[shapeByProperty] ?? '');
-  return {
-    color: colorMap[colorVal] ?? '#94a3b8',
-    shape: shapeMap[shapeVal] ?? 'circle',
-    size: nodeSize,
-  };
-}
+import type { VisualConfig } from '../../store/mappingStore.ts';
 
 // ── D3 simulation types ────────────────────────────────────────────────────────
 
@@ -38,8 +22,6 @@ interface SimEdge extends SimulationLinkDatum<SimNode> {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-const DEFAULT_CONFIG: VisualConfig = { color: '#94a3b8', shape: 'circle', size: 40 };
 
 function appendShape(
   g: d3.Selection<SVGGElement, SimNode, SVGGElement, unknown>,
@@ -62,7 +44,6 @@ function appendShape(
       .attr('fill', config.color).attr('stroke', stroke).attr('stroke-width', strokeW);
   }
 
-  // Pin indicator: small amber dot above the node
   if (pinned) {
     g.append('circle').attr('class', 'pin-dot')
       .attr('r', 4).attr('cy', -r - 5)
@@ -70,13 +51,10 @@ function appendShape(
   }
 }
 
-// Compute opacity based on highlight + search (search takes priority)
 function nodeOpacity(
   d: SimNode,
   highlightedLabel: string | null,
   searchQuery: string,
-  colorByProperty: string,
-  shapeByProperty: string,
 ): number {
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
@@ -86,21 +64,19 @@ function nodeOpacity(
     return matches ? 1 : 0.08;
   }
   if (highlightedLabel) {
-    const matches =
-      String(d.properties[colorByProperty] ?? '') === highlightedLabel ||
-      String(d.properties[shapeByProperty] ?? '') === highlightedLabel;
-    return matches ? 1 : 0.15;
+    const cfg = LABEL_CONFIGS[d.primaryLabel];
+    if (!cfg) return 0.15;
+    const matchesColor = cfg.colorByProperty &&
+      String(d.properties[cfg.colorByProperty] ?? '') === highlightedLabel;
+    const matchesShape = cfg.shapeByProperty &&
+      String(d.properties[cfg.shapeByProperty] ?? '') === highlightedLabel;
+    return (matchesColor || matchesShape) ? 1 : 0.15;
   }
   return 1;
 }
 
 // Assign fixed positions for non-force layouts
-function applyLayout(
-  simNodes: SimNode[],
-  layout: LayoutAlgorithm,
-  cx: number,
-  cy: number,
-) {
+function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, cy: number) {
   const n = simNodes.length;
   if (n === 0) return;
 
@@ -110,8 +86,7 @@ function applyLayout(
       const angle = (2 * Math.PI * i) / n - Math.PI / 2;
       d.fx = cx + radius * Math.cos(angle);
       d.fy = cy + radius * Math.sin(angle);
-      d.x = d.fx;
-      d.y = d.fy;
+      d.x = d.fx; d.y = d.fy;
     });
   } else if (layout === 'grid') {
     const cols = Math.ceil(Math.sqrt(n));
@@ -120,22 +95,15 @@ function applyLayout(
     const rows = Math.ceil(n / cols);
     const totalH = (rows - 1) * spacing;
     simNodes.forEach((d, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      d.fx = cx - totalW / 2 + col * spacing;
-      d.fy = cy - totalH / 2 + row * spacing;
-      d.x = d.fx;
-      d.y = d.fy;
+      d.fx = cx - totalW / 2 + (i % cols) * spacing;
+      d.fy = cy - totalH / 2 + Math.floor(i / cols) * spacing;
+      d.x = d.fx; d.y = d.fy;
     });
   } else if (layout === 'radial') {
-    // First node at center, rest in rings of increasing radius
-    simNodes[0].fx = cx;
-    simNodes[0].fy = cy;
-    simNodes[0].x = cx;
-    simNodes[0].y = cy;
+    simNodes[0].fx = cx; simNodes[0].fy = cy;
+    simNodes[0].x = cx; simNodes[0].y = cy;
     const ringSize = 8;
-    let placed = 1;
-    let ring = 1;
+    let placed = 1, ring = 1;
     while (placed < n) {
       const inRing = Math.min(ringSize * ring, n - placed);
       const radius = ring * 120;
@@ -143,10 +111,8 @@ function applyLayout(
         const angle = (2 * Math.PI * j) / inRing - Math.PI / 2;
         const px = cx + radius * Math.cos(angle);
         const py = cy + radius * Math.sin(angle);
-        simNodes[placed].fx = px;
-        simNodes[placed].fy = py;
-        simNodes[placed].x = px;
-        simNodes[placed].y = py;
+        simNodes[placed].fx = px; simNodes[placed].fy = py;
+        simNodes[placed].x = px; simNodes[placed].y = py;
         placed++;
       }
       ring++;
@@ -159,7 +125,7 @@ function applyLayout(
 export function GraphCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const { nodes, edges } = useGraphStore();
-  const { colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize, edgeConfig } = useMapping();
+  const { colorMap, shapeMap, edgeConfig } = useMapping();
   const {
     selectedNodeId, highlightedLabel, searchQuery,
     pinnedNodeIds, hiddenNodeIds, layoutAlgorithm,
@@ -190,7 +156,6 @@ export function GraphCanvas() {
       .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
       .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#4b5563');
 
-    // Filter hidden nodes
     const visibleNodes = nodes.filter((n) => !hiddenNodeIds.has(n.id));
     if (visibleNodes.length === 0) return;
 
@@ -201,12 +166,11 @@ export function GraphCanvas() {
     svg.call(zoomBehavior);
     zoomRef.current = zoomBehavior;
 
-    // Build sim nodes — restore positions; apply pin constraints
     const cx = width / 2, cy = height / 2;
 
     const simNodes: SimNode[] = visibleNodes.map((n) => {
-      const saved   = positionsRef.current.get(n.id);
-      const pinned  = pinnedNodeIds.has(n.id);
+      const saved  = positionsRef.current.get(n.id);
+      const pinned = pinnedNodeIds.has(n.id);
       return {
         ...n,
         x:  saved?.x,
@@ -217,19 +181,21 @@ export function GraphCanvas() {
     });
     simNodesRef.current = simNodes;
 
-    const nodeById = new Map(simNodes.map((n) => [n.id, n]));
+    // Pre-compute visual config for every node once
+    const nodeConfigs = new Map<string, VisualConfig>();
+    for (const node of simNodes) {
+      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap, shapeMap));
+    }
 
+    const nodeById = new Map(simNodes.map((n) => [n.id, n]));
     const simEdges: SimEdge[] = edges
       .filter((e) => e.source !== e.target && nodeById.has(e.source) && nodeById.has(e.target))
       .map((e: GraphEdge) => ({ ...e }));
 
-    const n      = simNodes.length;
-    const sqrtN  = Math.sqrt(Math.max(1, n));
+    const n     = simNodes.length;
+    const sqrtN = Math.sqrt(Math.max(1, n));
 
-    // Apply fixed positions for non-force layouts
-    if (layoutAlgorithm !== 'force') {
-      applyLayout(simNodes, layoutAlgorithm, cx, cy);
-    }
+    if (layoutAlgorithm !== 'force') applyLayout(simNodes, layoutAlgorithm, cx, cy);
 
     const simulation = d3
       .forceSimulation<SimNode>(simNodes)
@@ -243,11 +209,7 @@ export function GraphCanvas() {
       .velocityDecay(0.65)
       .alphaDecay(0.04);
 
-    // Non-force layouts: stop simulation after first tick so nodes stay in place
-    if (layoutAlgorithm !== 'force') {
-      simulation.stop();
-      simulation.tick();
-    }
+    if (layoutAlgorithm !== 'force') { simulation.stop(); simulation.tick(); }
 
     const linkGroup = g.append('g').attr('class', 'links');
     const nodeGroup = g.append('g').attr('class', 'nodes');
@@ -261,13 +223,13 @@ export function GraphCanvas() {
       .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '9px')
       .attr('pointer-events', 'none').text((d) => d.type);
 
-    const curSelectedId  = useUiStore.getState().selectedNodeId;
-    const curHighlight   = useUiStore.getState().highlightedLabel;
-    const curSearch      = useUiStore.getState().searchQuery;
+    const curSelectedId = useUiStore.getState().selectedNodeId;
+    const curHighlight  = useUiStore.getState().highlightedLabel;
+    const curSearch     = useUiStore.getState().searchQuery;
 
     const nodeEl = nodeGroup.selectAll<SVGGElement, SimNode>('g').data(simNodes).join('g')
       .attr('cursor', 'pointer')
-      .attr('opacity', (d) => nodeOpacity(d, curHighlight, curSearch, colorByProperty, shapeByProperty))
+      .attr('opacity', (d) => nodeOpacity(d, curHighlight, curSearch))
       .on('click', (event, d) => {
         event.stopPropagation();
         setSelectedNode(d.id === useUiStore.getState().selectedNodeId ? null : d.id);
@@ -286,15 +248,12 @@ export function GraphCanvas() {
           .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
           .on('end', (event, d) => {
             if (!event.active) simulation.alphaTarget(0);
-            // Keep pinned; release unpinned
-            if (!useUiStore.getState().pinnedNodeIds.has(d.id)) {
-              d.fx = null; d.fy = null;
-            }
+            if (!useUiStore.getState().pinnedNodeIds.has(d.id)) { d.fx = null; d.fy = null; }
           }),
       );
 
     nodeEl.each(function (d) {
-      const config = resolveConfig(d, colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize);
+      const config = nodeConfigs.get(d.id)!;
       appendShape(
         d3.select(this) as unknown as d3.Selection<SVGGElement, SimNode, SVGGElement, unknown>,
         config,
@@ -305,13 +264,12 @@ export function GraphCanvas() {
 
     nodeEl.append('text')
       .attr('text-anchor', 'middle').attr('fill', '#e2e8f0').attr('font-size', '11px')
-      .attr('dy', nodeSize / 2 + 13)
+      .attr('dy', (d) => (nodeConfigs.get(d.id)?.size ?? 36) / 2 + 13)
       .attr('pointer-events', 'none')
       .text((d) => (d.properties['name'] as string) ?? d.primaryLabel);
 
     svg.on('click', () => setSelectedNode(null));
 
-    // ── Bridge refs ────────────────────────────────────────────────────────────
     applySelectionRef.current = (id) => {
       nodeEl.each(function (d) {
         const sel = d.id === id;
@@ -322,17 +280,16 @@ export function GraphCanvas() {
     };
 
     applyOpacityRef.current = (hl, sq) => {
-      nodeEl.attr('opacity', (d) => nodeOpacity(d, hl, sq, colorByProperty, shapeByProperty));
+      nodeEl.attr('opacity', (d) => nodeOpacity(d, hl, sq));
     };
 
-    // ── Tick function (shared by live simulation and static layouts) ───────────
     const tick = () => {
       linkEl.each(function (d) {
         const src = d.source as SimNode, tgt = d.target as SimNode;
         const sx = src.x ?? 0, sy = src.y ?? 0, tx = tgt.x ?? 0, ty = tgt.y ?? 0;
         const angle = Math.atan2(ty - sy, tx - sx);
-        const srcCfg = resolveConfig(src, colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize);
-        const tgtCfg = resolveConfig(tgt, colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize);
+        const srcCfg = nodeConfigs.get(src.id)!;
+        const tgtCfg = nodeConfigs.get(tgt.id)!;
         const sa = getAnchorPoint(angle, srcCfg.shape as ShapeType, srcCfg.size / 2);
         const ta = getAnchorPoint(angle + Math.PI, tgtCfg.shape as ShapeType, tgtCfg.size / 2);
         d3.select(this)
@@ -347,35 +304,30 @@ export function GraphCanvas() {
       nodeEl.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
     };
 
-    if (layoutAlgorithm !== 'force') {
-      // Static layout: render once immediately
-      tick();
-    } else {
-      simulation.on('tick', tick);
-    }
+    if (layoutAlgorithm !== 'force') tick();
+    else simulation.on('tick', tick);
 
     return () => {
       simulation.stop();
       for (const nd of simNodes) {
-        if (nd.x !== undefined && nd.y !== undefined) {
+        if (nd.x !== undefined && nd.y !== undefined)
           positionsRef.current.set(nd.id, { x: nd.x, y: nd.y });
-        }
       }
       svg.on('click', null);
       applySelectionRef.current = () => {};
       applyOpacityRef.current   = () => {};
     };
-  }, [nodes, edges, colorByProperty, shapeByProperty, colorMap, shapeMap, nodeSize, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
+  }, [nodes, edges, colorMap, shapeMap, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
 
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);
 
-  // ── Effect 3: opacity (highlight + search) ─────────────────────────────────
+  // ── Effect 3: opacity ─────────────────────────────────────────────────────
   useEffect(() => {
     applyOpacityRef.current(highlightedLabel, searchQuery);
   }, [highlightedLabel, searchQuery]);
 
-  // ── Effect 4: register imperative canvas actions ───────────────────────────
+  // ── Effect 4: register canvas actions ─────────────────────────────────────
   useEffect(() => {
     canvasActions.register('fitToScreen', () => {
       const svgEl = svgRef.current;
@@ -386,29 +338,23 @@ export function GraphCanvas() {
 
       const xs = simNodes.map((d) => d.x ?? 0);
       const ys = simNodes.map((d) => d.y ?? 0);
-      const minX = Math.min(...xs) - 60;
-      const maxX = Math.max(...xs) + 60;
-      const minY = Math.min(...ys) - 60;
-      const maxY = Math.max(...ys) + 60;
+      const minX = Math.min(...xs) - 60, maxX = Math.max(...xs) + 60;
+      const minY = Math.min(...ys) - 60, maxY = Math.max(...ys) + 60;
 
-      const w = svgEl.clientWidth  || 800;
-      const h = svgEl.clientHeight || 600;
+      const w = svgEl.clientWidth || 800, h = svgEl.clientHeight || 600;
       const scale = Math.min(0.9 * w / (maxX - minX), 0.9 * h / (maxY - minY), 4);
       const tx = w / 2 - scale * ((minX + maxX) / 2);
       const ty = h / 2 - scale * ((minY + maxY) / 2);
 
-      d3.select(svgEl)
-        .transition().duration(500)
+      d3.select(svgEl).transition().duration(500)
         .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
     });
 
     canvasActions.register('exportSVG', () => {
       const svgEl = svgRef.current;
       if (!svgEl) return;
-      const serializer = new XMLSerializer();
-      const svgStr = serializer.serializeToString(svgEl);
-      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-      const url  = URL.createObjectURL(blob);
+      const blob = new Blob([new XMLSerializer().serializeToString(svgEl)], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = 'graph.svg'; a.click();
       URL.revokeObjectURL(url);
@@ -417,19 +363,16 @@ export function GraphCanvas() {
     canvasActions.register('exportPNG', () => {
       const svgEl = svgRef.current;
       if (!svgEl) return;
-      const w = svgEl.clientWidth  || 800;
-      const h = svgEl.clientHeight || 600;
-      const serializer = new XMLSerializer();
-      const svgStr = serializer.serializeToString(svgEl);
-      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
-      const url  = URL.createObjectURL(blob);
-      const img  = new Image();
+      const w = svgEl.clientWidth || 800, h = svgEl.clientHeight || 600;
+      const blob = new Blob([new XMLSerializer().serializeToString(svgEl)], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        canvas.width = w * 2; canvas.height = h * 2; // 2× for retina
+        canvas.width = w * 2; canvas.height = h * 2;
         const ctx = canvas.getContext('2d')!;
         ctx.scale(2, 2);
-        ctx.fillStyle = '#030712'; // bg-gray-950
+        ctx.fillStyle = '#030712';
         ctx.fillRect(0, 0, w, h);
         ctx.drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
