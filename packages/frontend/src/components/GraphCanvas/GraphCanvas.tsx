@@ -2,12 +2,11 @@ import { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3';
 import { useGraphStore } from '../../store/graphStore.ts';
-import { useMapping, resolveNodeConfig } from '../../store/mappingStore.ts';
+import { useMapping, resolveNodeConfig, COLOR_PROPERTY } from '../../store/mappingStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 import { getAnchorPoint, getShapePath, type ShapeType } from '../shapes/index.ts';
 import type { GraphNode, GraphEdge } from '../../types.ts';
 import { canvasActions } from '../../lib/canvasActions.ts';
-import { LABEL_CONFIGS } from '../../store/mappingStore.ts';
 import type { LayoutAlgorithm } from '../../store/uiStore.ts';
 import type { VisualConfig } from '../../store/mappingStore.ts';
 
@@ -64,13 +63,9 @@ function nodeOpacity(
     return matches ? 1 : 0.08;
   }
   if (highlightedLabel) {
-    const cfg = LABEL_CONFIGS[d.primaryLabel];
-    if (!cfg) return 0.15;
-    const matchesColor = cfg.colorByProperty &&
-      String(d.properties[cfg.colorByProperty] ?? '') === highlightedLabel;
-    const matchesShape = cfg.shapeByProperty &&
-      String(d.properties[cfg.shapeByProperty] ?? '') === highlightedLabel;
-    return (matchesColor || matchesShape) ? 1 : 0.15;
+    const matchesDomain = String(d.properties[COLOR_PROPERTY] ?? '') === highlightedLabel;
+    const matchesLabel  = d.primaryLabel === highlightedLabel;
+    return (matchesDomain || matchesLabel) ? 1 : 0.15;
   }
   return 1;
 }
@@ -125,7 +120,7 @@ function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, c
 export function GraphCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const { nodes, edges } = useGraphStore();
-  const { colorMap, shapeMap, edgeConfig } = useMapping();
+  const { colorMap, edgeConfig } = useMapping();
   const {
     selectedNodeId, highlightedLabel, searchQuery,
     pinnedNodeIds, hiddenNodeIds, layoutAlgorithm,
@@ -184,7 +179,7 @@ export function GraphCanvas() {
     // Pre-compute visual config for every node once
     const nodeConfigs = new Map<string, VisualConfig>();
     for (const node of simNodes) {
-      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap, shapeMap));
+      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap));
     }
 
     const nodeById = new Map(simNodes.map((n) => [n.id, n]));
@@ -317,7 +312,7 @@ export function GraphCanvas() {
       applySelectionRef.current = () => {};
       applyOpacityRef.current   = () => {};
     };
-  }, [nodes, edges, colorMap, shapeMap, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
+  }, [nodes, edges, colorMap, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
 
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);

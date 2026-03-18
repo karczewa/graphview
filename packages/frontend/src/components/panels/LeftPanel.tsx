@@ -1,63 +1,31 @@
-import { useMapping, LABEL_CONFIGS } from '../../store/mappingStore.ts';
+import { useMapping, LABEL_SHAPES, COLOR_PROPERTY } from '../../store/mappingStore.ts';
 import { useGraphStore } from '../../store/graphStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 
-// ── LeftPanel — read-only legend ──────────────────────────────────────────────
-
 export function LeftPanel() {
-  const { colorMap, shapeMap } = useMapping();
+  const { colorMap } = useMapping();
   const { nodes, metadata } = useGraphStore();
   const { highlightedLabel, setHighlightedLabel, searchQuery, setSearchQuery, hiddenNodeIds, showAllNodes } = useUiStore();
 
-  // Build legend entries from nodes currently in the graph
-  // colorEntries: { label, property, value, color }[]
-  // shapeEntries: { label, property, value, shape }[]
-  const colorEntries: { label: string; property: string; value: string; color: string }[] = [];
-  const shapeEntries: { label: string; property: string; value: string; shape: string }[] = [];
-
-  const seenColorKeys = new Set<string>();
-  const seenShapeKeys = new Set<string>();
-
+  // Unique domain values present in the current graph
+  const domainEntries: { value: string; color: string }[] = [];
+  const seenDomains = new Set<string>();
   for (const node of nodes) {
-    const cfg = LABEL_CONFIGS[node.primaryLabel];
-    if (!cfg) continue;
-
-    if (cfg.colorByProperty) {
-      const val = String(node.properties[cfg.colorByProperty] ?? '');
-      const key = `${cfg.colorByProperty}:${val}`;
-      if (val && !seenColorKeys.has(key)) {
-        seenColorKeys.add(key);
-        colorEntries.push({
-          label: node.primaryLabel,
-          property: cfg.colorByProperty,
-          value: val,
-          color: colorMap[key] ?? '#94a3b8',
-        });
-      }
-    }
-
-    if (cfg.shapeByProperty) {
-      const val = String(node.properties[cfg.shapeByProperty] ?? '');
-      const key = `${cfg.shapeByProperty}:${val}`;
-      if (val && !seenShapeKeys.has(key)) {
-        seenShapeKeys.add(key);
-        shapeEntries.push({
-          label: node.primaryLabel,
-          property: cfg.shapeByProperty,
-          value: val,
-          shape: shapeMap[key] ?? 'circle',
-        });
-      }
+    const domain = String(node.properties[COLOR_PROPERTY] ?? '');
+    if (domain && !seenDomains.has(domain)) {
+      seenDomains.add(domain);
+      domainEntries.push({ value: domain, color: colorMap[domain] ?? '#94a3b8' });
     }
   }
+  domainEntries.sort((a, b) => a.value.localeCompare(b.value));
 
-  // Sort entries: group by label then alphabetically by value
-  colorEntries.sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
-  shapeEntries.sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
+  // Which of the three known labels are present in the current graph
+  const presentLabels = Array.from(new Set(nodes.map((n) => n.primaryLabel)))
+    .filter((l) => l in LABEL_SHAPES)
+    .sort();
 
-  // Group by label for display
-  const colorGroups = groupBy(colorEntries, (e) => `${e.label} — ${e.property}`);
-  const shapeGroups = groupBy(shapeEntries, (e) => `${e.label} — ${e.property}`);
+  const highlight = (val: string) =>
+    setHighlightedLabel(highlightedLabel === val ? null : val);
 
   return (
     <div className="h-full flex flex-col bg-gray-900 border-r border-gray-800">
@@ -77,50 +45,52 @@ export function LeftPanel() {
           <p className="text-xs text-gray-600 px-4 py-4 text-center">No data loaded</p>
         ) : (
           <>
-            {/* ── Color legend ───────────────────────────────────────────── */}
-            {Object.entries(colorGroups).map(([groupLabel, entries]) => (
-              <div key={groupLabel}>
-                <p className="text-xs text-gray-500 px-3 mb-1">{groupLabel}</p>
-                {entries.map((entry) => (
+            {/* ── Color legend (domain) ───────────────────────────────── */}
+            {domainEntries.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-500 px-3 mb-1">Color — domain</p>
+                {domainEntries.map(({ value, color }) => (
                   <div
-                    key={entry.value}
+                    key={value}
+                    onClick={() => highlight(value)}
                     className={`flex items-center gap-2 px-3 py-1 mx-1 rounded cursor-pointer transition-colors ${
-                      highlightedLabel === entry.value ? 'bg-gray-700' : 'hover:bg-gray-800'
+                      highlightedLabel === value ? 'bg-gray-700' : 'hover:bg-gray-800'
                     }`}
-                    onClick={() => setHighlightedLabel(highlightedLabel === entry.value ? null : entry.value)}
-                    title={`Highlight all ${entry.label} nodes with ${entry.property} = ${entry.value}`}
+                    title={`Highlight nodes with domain = ${value}`}
                   >
                     <span
                       className="w-3 h-3 rounded-full flex-shrink-0 border border-gray-600"
-                      style={{ backgroundColor: entry.color }}
+                      style={{ backgroundColor: color }}
                     />
-                    <span className="text-sm text-gray-300 truncate">{entry.value}</span>
+                    <span className="text-sm text-gray-300 truncate">{value}</span>
                   </div>
                 ))}
               </div>
-            ))}
+            )}
 
-            {/* ── Shape legend ───────────────────────────────────────────── */}
-            {Object.entries(shapeGroups).map(([groupLabel, entries]) => (
-              <div key={groupLabel}>
-                <p className="text-xs text-gray-500 px-3 mb-1">{groupLabel}</p>
-                {entries.map((entry) => (
+            {/* ── Shape legend (label) ────────────────────────────────── */}
+            {presentLabels.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-500 px-3 mb-1">Shape — label</p>
+                {presentLabels.map((label) => (
                   <div
-                    key={entry.value}
+                    key={label}
+                    onClick={() => highlight(label)}
                     className={`flex items-center gap-2 px-3 py-1 mx-1 rounded cursor-pointer transition-colors ${
-                      highlightedLabel === entry.value ? 'bg-gray-700' : 'hover:bg-gray-800'
+                      highlightedLabel === label ? 'bg-gray-700' : 'hover:bg-gray-800'
                     }`}
-                    onClick={() => setHighlightedLabel(highlightedLabel === entry.value ? null : entry.value)}
-                    title={`Highlight all ${entry.label} nodes with ${entry.property} = ${entry.value}`}
+                    title={`Highlight ${label} nodes`}
                   >
-                    <span className="text-xs text-gray-500 w-12 flex-shrink-0">{entry.shape}</span>
-                    <span className="text-sm text-gray-300 truncate">{entry.value}</span>
+                    <span className="text-xs text-gray-500 w-14 flex-shrink-0">
+                      {LABEL_SHAPES[label]}
+                    </span>
+                    <span className="text-sm text-gray-300">{label}</span>
                   </div>
                 ))}
               </div>
-            ))}
+            )}
 
-            {/* ── Relationships ──────────────────────────────────────────── */}
+            {/* ── Relationships ───────────────────────────────────────── */}
             {metadata && metadata.edgeTypes.length > 0 && (
               <div>
                 <p className="text-xs text-gray-500 px-3 mb-1">Relationships</p>
@@ -158,12 +128,4 @@ export function LeftPanel() {
       )}
     </div>
   );
-}
-
-function groupBy<T>(arr: T[], key: (item: T) => string): Record<string, T[]> {
-  return arr.reduce<Record<string, T[]>>((acc, item) => {
-    const k = key(item);
-    (acc[k] ??= []).push(item);
-    return acc;
-  }, {});
 }

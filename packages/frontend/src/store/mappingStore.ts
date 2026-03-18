@@ -13,23 +13,18 @@ export interface EdgeVisualConfig {
   width: number;
 }
 
-// Per-label visual mapping rules
-export interface LabelConfig {
-  colorByProperty: string | null;  // which property drives color
-  shapeByProperty: string | null;  // which property drives shape (null = fixed defaultShape)
-  defaultShape: ShapeType;         // shape used when shapeByProperty is null
-  size: number;                    // node diameter in px
-}
-
-// Hardcoded per-label configs — add new labels here as the schema grows
-export const LABEL_CONFIGS: Record<string, LabelConfig> = {
-  Table:  { colorByProperty: 'database_type', shapeByProperty: 'domain', defaultShape: 'hexagon', size: 44 },
-  Column: { colorByProperty: 'type',          shapeByProperty: null,     defaultShape: 'circle',  size: 28 },
+// Shape is determined by node label — only these three are mapped
+export const LABEL_SHAPES: Record<string, ShapeType> = {
+  Table:     'square',
+  View:      'hexagon',
+  Procedure: 'diamond',
 };
 
-const FALLBACK_LABEL_CONFIG: LabelConfig = {
-  colorByProperty: null, shapeByProperty: null, defaultShape: 'circle', size: 36,
-};
+// Color is determined by the 'domain' property value
+export const COLOR_PROPERTY = 'domain';
+
+const DEFAULT_COLOR = '#94a3b8'; // grey — used when domain is missing
+const NODE_SIZE = 40;
 
 // 20 visually distinct colors (Tableau 20 palette)
 export const COLORS = [
@@ -39,21 +34,10 @@ export const COLORS = [
   '#8cd17d', '#b6992d', '#f1ce63', '#86bcb6', '#d7b5a6',
 ];
 
-// Shapes used for property-based shape mapping.
-// 'circle' is reserved as the fixed default shape for Column nodes,
-// so it is excluded here to prevent visual overlap with tables.
-const MAPPING_SHAPES: ShapeType[] = [
-  'square', 'hexagon', 'diamond', 'triangle', 'pentagon', 'ellipse', 'star',
-];
-
 const EDGE_COLORS = ['#6b7280', '#9ca3af', '#4b5563', '#d1d5db'];
 
 interface MappingState {
-  // "propName:value" → hex color (shared pool across all labels)
-  colorMap: Record<string, string>;
-  // "propName:value" → shape
-  shapeMap: Record<string, ShapeType>;
-  // Edge styling
+  colorMap: Record<string, string>;   // domain value → hex color
   edgeConfig: Record<string, EdgeVisualConfig>;
 
   assignFromNodes: (nodes: GraphNode[]) => void;
@@ -63,47 +47,22 @@ interface MappingState {
 
 export const useMapping = create<MappingState>((set, get) => ({
   colorMap: {},
-  shapeMap: {},
   edgeConfig: {},
 
   assignFromNodes: (nodes) => {
-    const { colorMap, shapeMap } = get();
+    const { colorMap } = get();
     const newColorMap = { ...colorMap };
-    const newShapeMap = { ...shapeMap };
-
-    // Color index continues from however many values are already assigned
-    // so new values never reuse an existing color slot
     let colorIdx = Object.keys(newColorMap).length;
-    let shapeIdx = Object.keys(newShapeMap).length;
 
     for (const node of nodes) {
-      const cfg = LABEL_CONFIGS[node.primaryLabel];
-      if (!cfg) continue;
-
-      if (cfg.colorByProperty) {
-        const val = String(node.properties[cfg.colorByProperty] ?? '');
-        if (val) {
-          const key = `${cfg.colorByProperty}:${val}`;
-          if (!newColorMap[key]) {
-            newColorMap[key] = COLORS[colorIdx % COLORS.length]!;
-            colorIdx++;
-          }
-        }
-      }
-
-      if (cfg.shapeByProperty) {
-        const val = String(node.properties[cfg.shapeByProperty] ?? '');
-        if (val) {
-          const key = `${cfg.shapeByProperty}:${val}`;
-          if (!newShapeMap[key]) {
-            newShapeMap[key] = MAPPING_SHAPES[shapeIdx % MAPPING_SHAPES.length]!;
-            shapeIdx++;
-          }
-        }
+      const domain = String(node.properties[COLOR_PROPERTY] ?? '');
+      if (domain && !newColorMap[domain]) {
+        newColorMap[domain] = COLORS[colorIdx % COLORS.length]!;
+        colorIdx++;
       }
     }
 
-    set({ colorMap: newColorMap, shapeMap: newShapeMap });
+    set({ colorMap: newColorMap });
   },
 
   assignEdgeDefaults: (edgeTypes) => {
@@ -129,21 +88,9 @@ export const useMapping = create<MappingState>((set, get) => ({
 export function resolveNodeConfig(
   node: GraphNode,
   colorMap: Record<string, string>,
-  shapeMap: Record<string, ShapeType>,
 ): VisualConfig {
-  const cfg = LABEL_CONFIGS[node.primaryLabel] ?? FALLBACK_LABEL_CONFIG;
-
-  let color = '#94a3b8';
-  if (cfg.colorByProperty) {
-    const val = String(node.properties[cfg.colorByProperty] ?? '');
-    color = colorMap[`${cfg.colorByProperty}:${val}`] ?? '#94a3b8';
-  }
-
-  let shape: ShapeType = cfg.defaultShape;
-  if (cfg.shapeByProperty) {
-    const val = String(node.properties[cfg.shapeByProperty] ?? '');
-    shape = shapeMap[`${cfg.shapeByProperty}:${val}`] ?? cfg.defaultShape;
-  }
-
-  return { color, shape, size: cfg.size };
+  const shape = LABEL_SHAPES[node.primaryLabel] ?? 'circle';
+  const domain = String(node.properties[COLOR_PROPERTY] ?? '');
+  const color = domain ? (colorMap[domain] ?? DEFAULT_COLOR) : DEFAULT_COLOR;
+  return { color, shape, size: NODE_SIZE };
 }
