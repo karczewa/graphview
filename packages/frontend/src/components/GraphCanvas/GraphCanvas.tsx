@@ -6,6 +6,8 @@ import { useMapping, type VisualConfig } from '../../store/mappingStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 import { getAnchorPoint, getShapePath, type ShapeType } from '../shapes/index.ts';
 import type { GraphNode, GraphEdge } from '../../types.ts';
+import { canvasActions } from '../../lib/canvasActions.ts';
+import type { LayoutAlgorithm } from '../../store/uiStore.ts';
 
 // ── D3 simulation types ────────────────────────────────────────────────────────
 
@@ -67,6 +69,66 @@ function nodeOpacity(
   return 1;
 }
 
+// Assign fixed positions for non-force layouts
+function applyLayout(
+  simNodes: SimNode[],
+  layout: LayoutAlgorithm,
+  cx: number,
+  cy: number,
+) {
+  const n = simNodes.length;
+  if (n === 0) return;
+
+  if (layout === 'circular') {
+    const radius = Math.min(cx, cy) * 0.75;
+    simNodes.forEach((d, i) => {
+      const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+      d.fx = cx + radius * Math.cos(angle);
+      d.fy = cy + radius * Math.sin(angle);
+      d.x = d.fx;
+      d.y = d.fy;
+    });
+  } else if (layout === 'grid') {
+    const cols = Math.ceil(Math.sqrt(n));
+    const spacing = Math.min(120, Math.max(60, Math.min(cx, cy) * 1.5 / cols));
+    const totalW = (cols - 1) * spacing;
+    const rows = Math.ceil(n / cols);
+    const totalH = (rows - 1) * spacing;
+    simNodes.forEach((d, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      d.fx = cx - totalW / 2 + col * spacing;
+      d.fy = cy - totalH / 2 + row * spacing;
+      d.x = d.fx;
+      d.y = d.fy;
+    });
+  } else if (layout === 'radial') {
+    // First node at center, rest in rings of increasing radius
+    simNodes[0].fx = cx;
+    simNodes[0].fy = cy;
+    simNodes[0].x = cx;
+    simNodes[0].y = cy;
+    const ringSize = 8;
+    let placed = 1;
+    let ring = 1;
+    while (placed < n) {
+      const inRing = Math.min(ringSize * ring, n - placed);
+      const radius = ring * 120;
+      for (let j = 0; j < inRing; j++) {
+        const angle = (2 * Math.PI * j) / inRing - Math.PI / 2;
+        const px = cx + radius * Math.cos(angle);
+        const py = cy + radius * Math.sin(angle);
+        simNodes[placed].fx = px;
+        simNodes[placed].fy = py;
+        simNodes[placed].x = px;
+        simNodes[placed].y = py;
+        placed++;
+      }
+      ring++;
+    }
+  }
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function GraphCanvas() {
@@ -75,11 +137,13 @@ export function GraphCanvas() {
   const { labelConfig } = useMapping();
   const {
     selectedNodeId, highlightedLabel, searchQuery,
-    pinnedNodeIds, hiddenNodeIds,
+    pinnedNodeIds, hiddenNodeIds, layoutAlgorithm,
     setSelectedNode, setContextMenu,
   } = useUiStore();
 
   const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const simNodesRef  = useRef<SimNode[]>([]);
+  const zoomRef      = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
   const applySelectionRef = useRef<(id: string | null) => void>(() => {});
   const applyOpacityRef   = useRef<(hl: string | null, sq: string) => void>(() => {});
@@ -106,13 +170,15 @@ export function GraphCanvas() {
     if (visibleNodes.length === 0) return;
 
     const g = svg.append('g');
-    svg.call(
-      d3.zoom<SVGSVGElement, unknown>()
-        .scaleExtent([0.05, 8])
-        .on('zoom', (e) => g.attr('transform', e.transform.toString())),
-    );
+    const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.05, 8])
+      .on('zoom', (e) => g.attr('transform', e.transform.toString()));
+    svg.call(zoomBehavior);
+    zoomRef.current = zoomBehavior;
 
     // Build sim nodes — restore positions; apply pin constraints
+    const cx = width / 2, cy = height / 2;
+
     const simNodes: SimNode[] = visibleNodes.map((n) => {
       const saved   = positionsRef.current.get(n.id);
       const pinned  = pinnedNodeIds.has(n.id);
@@ -124,6 +190,8 @@ export function GraphCanvas() {
         fy: pinned && saved ? saved.y : undefined,
       };
     });
+    simNodesRef.current = simNodes;
+
     const nodeById = new Map(simNodes.map((n) => [n.id, n]));
 
     const simEdges: SimEdge[] = edges
@@ -132,7 +200,11 @@ export function GraphCanvas() {
 
     const n      = simNodes.length;
     const sqrtN  = Math.sqrt(Math.max(1, n));
-    const cx = width / 2, cy = height / 2;
+
+    // Apply fixed positions for non-force layouts
+    if (layoutAlgorithm !== 'force') {
+      applyLayout(simNodes, layoutAlgorithm, cx, cy);
+    }
 
     const simulation = d3
       .forceSimulation<SimNode>(simNodes)
@@ -145,6 +217,12 @@ export function GraphCanvas() {
       .force('collision', d3.forceCollide<SimNode>(Math.min(60, Math.max(25, 400 / sqrtN))))
       .velocityDecay(0.65)
       .alphaDecay(0.04);
+
+    // Non-force layouts: stop simulation after first tick so nodes stay in place
+    if (layoutAlgorithm !== 'force') {
+      simulation.stop();
+      simulation.tick();
+    }
 
     const linkGroup = g.append('g').attr('class', 'links');
     const nodeGroup = g.append('g').attr('class', 'nodes');
@@ -222,8 +300,8 @@ export function GraphCanvas() {
       nodeEl.attr('opacity', (d) => nodeOpacity(d, hl, sq));
     };
 
-    // ── Tick ──────────────────────────────────────────────────────────────────
-    simulation.on('tick', () => {
+    // ── Tick function (shared by live simulation and static layouts) ───────────
+    const tick = () => {
       linkEl.each(function (d) {
         const src = d.source as SimNode, tgt = d.target as SimNode;
         const sx = src.x ?? 0, sy = src.y ?? 0, tx = tgt.x ?? 0, ty = tgt.y ?? 0;
@@ -242,7 +320,14 @@ export function GraphCanvas() {
         .attr('y', (d) => (((d.source as SimNode).y ?? 0) + ((d.target as SimNode).y ?? 0)) / 2);
 
       nodeEl.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
-    });
+    };
+
+    if (layoutAlgorithm !== 'force') {
+      // Static layout: render once immediately
+      tick();
+    } else {
+      simulation.on('tick', tick);
+    }
 
     return () => {
       simulation.stop();
@@ -255,7 +340,7 @@ export function GraphCanvas() {
       applySelectionRef.current = () => {};
       applyOpacityRef.current   = () => {};
     };
-  }, [nodes, edges, labelConfig, pinnedNodeIds, hiddenNodeIds, setSelectedNode, setContextMenu]);
+  }, [nodes, edges, labelConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
 
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);
@@ -264,6 +349,77 @@ export function GraphCanvas() {
   useEffect(() => {
     applyOpacityRef.current(highlightedLabel, searchQuery);
   }, [highlightedLabel, searchQuery]);
+
+  // ── Effect 4: register imperative canvas actions ───────────────────────────
+  useEffect(() => {
+    canvasActions.register('fitToScreen', () => {
+      const svgEl = svgRef.current;
+      const zoom  = zoomRef.current;
+      if (!svgEl || !zoom) return;
+      const simNodes = simNodesRef.current;
+      if (simNodes.length === 0) return;
+
+      const xs = simNodes.map((d) => d.x ?? 0);
+      const ys = simNodes.map((d) => d.y ?? 0);
+      const minX = Math.min(...xs) - 60;
+      const maxX = Math.max(...xs) + 60;
+      const minY = Math.min(...ys) - 60;
+      const maxY = Math.max(...ys) + 60;
+
+      const w = svgEl.clientWidth  || 800;
+      const h = svgEl.clientHeight || 600;
+      const scale = Math.min(0.9 * w / (maxX - minX), 0.9 * h / (maxY - minY), 4);
+      const tx = w / 2 - scale * ((minX + maxX) / 2);
+      const ty = h / 2 - scale * ((minY + maxY) / 2);
+
+      d3.select(svgEl)
+        .transition().duration(500)
+        .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+    });
+
+    canvasActions.register('exportSVG', () => {
+      const svgEl = svgRef.current;
+      if (!svgEl) return;
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(svgEl);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const url  = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'graph.svg'; a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    canvasActions.register('exportPNG', () => {
+      const svgEl = svgRef.current;
+      if (!svgEl) return;
+      const w = svgEl.clientWidth  || 800;
+      const h = svgEl.clientHeight || 600;
+      const serializer = new XMLSerializer();
+      const svgStr = serializer.serializeToString(svgEl);
+      const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+      const url  = URL.createObjectURL(blob);
+      const img  = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = w * 2; canvas.height = h * 2; // 2× for retina
+        const ctx = canvas.getContext('2d')!;
+        ctx.scale(2, 2);
+        ctx.fillStyle = '#030712'; // bg-gray-950
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png'); a.download = 'graph.png'; a.click();
+      };
+      img.src = url;
+    });
+
+    return () => {
+      canvasActions.unregister('fitToScreen');
+      canvasActions.unregister('exportSVG');
+      canvasActions.unregister('exportPNG');
+    };
+  }, []);
 
   return (
     <svg ref={svgRef} className="w-full h-full bg-gray-950" style={{ display: 'block' }} />

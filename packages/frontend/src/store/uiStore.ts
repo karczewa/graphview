@@ -2,6 +2,8 @@ import { create } from 'zustand';
 
 const MAX_HISTORY = 20;
 
+export type LayoutAlgorithm = 'force' | 'circular' | 'grid' | 'radial';
+
 export interface Toast {
   id: string;
   message: string;
@@ -26,6 +28,7 @@ interface UiState {
   pinnedNodeIds: Set<string>;
   hiddenNodeIds: Set<string>;
   toasts: Toast[];
+  layoutAlgorithm: LayoutAlgorithm;
 
   setSelectedNode: (id: string | null) => void;
   setSelectedEdge: (id: string | null) => void;
@@ -40,6 +43,7 @@ interface UiState {
   showAllNodes: () => void;
   addToast: (message: string, type?: 'error' | 'info') => void;
   dismissToast: (id: string) => void;
+  setLayoutAlgorithm: (layout: LayoutAlgorithm) => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -54,6 +58,7 @@ export const useUiStore = create<UiState>((set) => ({
   pinnedNodeIds: new Set(),
   hiddenNodeIds: new Set(),
   toasts: [],
+  layoutAlgorithm: 'force',
 
   setSelectedNode: (id) => set({ selectedNodeId: id, selectedEdgeId: null }),
   setSelectedEdge: (id) => set({ selectedEdgeId: id, selectedNodeId: null }),
@@ -98,4 +103,6 @@ export const useUiStore = create<UiState>((set) => ({
 
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  setLayoutAlgorithm: (layoutAlgorithm) => set({ layoutAlgorithm }),
 }));

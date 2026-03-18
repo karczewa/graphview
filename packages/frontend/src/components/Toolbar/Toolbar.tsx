@@ -1,12 +1,21 @@
 import { useState, useRef, useEffect } from 'react';
 import { useGraphStore } from '../../store/graphStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
+import { canvasActions } from '../../lib/canvasActions.ts';
+import type { LayoutAlgorithm } from '../../store/uiStore.ts';
+
+const LAYOUTS: { value: LayoutAlgorithm; label: string }[] = [
+  { value: 'force',    label: 'Force' },
+  { value: 'circular', label: 'Circular' },
+  { value: 'grid',     label: 'Grid' },
+  { value: 'radial',   label: 'Radial' },
+];
 
 export function Toolbar() {
   const [query, setQuery] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const { runQuery, loading } = useGraphStore();
-  const { queryHistory, addToHistory } = useUiStore();
+  const { queryHistory, addToHistory, layoutAlgorithm, setLayoutAlgorithm } = useUiStore();
   const historyRef = useRef<HTMLDivElement>(null);
 
   const run = () => {
@@ -87,6 +96,45 @@ export function Toolbar() {
           )}
         </div>
       )}
+
+      {/* Layout picker */}
+      <select
+        value={layoutAlgorithm}
+        onChange={(e) => setLayoutAlgorithm(e.target.value as LayoutAlgorithm)}
+        className="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded border border-gray-700 focus:outline-none flex-shrink-0"
+        title="Layout algorithm"
+      >
+        {LAYOUTS.map((l) => (
+          <option key={l.value} value={l.value}>{l.label}</option>
+        ))}
+      </select>
+
+      {/* Fit to screen — keyboard shortcut F */}
+      <button
+        onClick={() => canvasActions.call('fitToScreen')}
+        className="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 text-sm rounded transition-colors flex-shrink-0"
+        title="Fit to screen (F)"
+      >
+        ⊡ Fit
+      </button>
+
+      {/* Export PNG */}
+      <button
+        onClick={() => canvasActions.call('exportPNG')}
+        className="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 text-sm rounded transition-colors flex-shrink-0"
+        title="Export as PNG"
+      >
+        PNG
+      </button>
+
+      {/* Export SVG */}
+      <button
+        onClick={() => canvasActions.call('exportSVG')}
+        className="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 text-sm rounded transition-colors flex-shrink-0"
+        title="Export as SVG"
+      >
+        SVG
+      </button>
     </div>
   );
 }
