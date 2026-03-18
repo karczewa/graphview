@@ -26,9 +26,12 @@ queryRouter.post('/', async (req, res, next) => {
     const resolvedLimit =
       typeof limit === 'number' ? Math.min(limit, config.queryMaxLimit) : config.queryMaxLimit;
 
-    const finalCypher = /\bLIMIT\b/i.test(cypher)
-      ? cypher
-      : `${cypher.trimEnd()} LIMIT ${resolvedLimit}`;
+    // Strip trailing semicolons — neo4j-driver treats them as statement separators
+    const cleanCypher = cypher.trim().replace(/;+$/, '');
+
+    const finalCypher = /\bLIMIT\b/i.test(cleanCypher)
+      ? cleanCypher
+      : `${cleanCypher} LIMIT ${resolvedLimit}`;
 
     const start = Date.now();
     const result = await neo4jClient.run(finalCypher, params as Record<string, unknown>);
