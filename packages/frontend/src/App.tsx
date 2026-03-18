@@ -1,10 +1,22 @@
+import { useEffect } from 'react';
+import { AppLayout } from './components/layout/AppLayout.tsx';
+import { useGraphStore } from './store/graphStore.ts';
+import { useMapping } from './store/mappingStore.ts';
+import { api } from './api/client.ts';
+
 export default function App() {
-  return (
-    <div className="h-full flex items-center justify-center bg-gray-950 text-white">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-2">GraphView</h1>
-        <p className="text-gray-400">Sprint 1 scaffold — UI coming in Sprint 2</p>
-      </div>
-    </div>
-  );
+  const { fetchGraph } = useGraphStore();
+  const { assignDefaults } = useMapping();
+
+  useEffect(() => {
+    // Load schema first to set up visual mapping, then fetch graph
+    api.schema()
+      .then((schema) => {
+        assignDefaults(schema.nodeLabels, schema.relationshipTypes);
+        return fetchGraph(200);
+      })
+      .catch(() => fetchGraph(200)); // schema optional — graph still loads
+  }, [fetchGraph, assignDefaults]);
+
+  return <AppLayout />;
 }
