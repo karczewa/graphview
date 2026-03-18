@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { neo4jClient } from '../services/neo4jClient.js';
-import { transformGraphResponse } from '../services/graphTransformer.js';
+import { transformQueryResult } from '../services/graphTransformer.js';
 import { config } from '../config.js';
 
 export const graphRouter = Router();
@@ -12,12 +12,12 @@ graphRouter.get('/', async (req, res, next) => {
     const limit = isNaN(limitParam) ? config.queryMaxLimit : Math.min(limitParam, config.queryMaxLimit);
 
     const start = Date.now();
-    const raw = await neo4jClient.query(
+    const result = await neo4jClient.run(
       `MATCH (n) OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m LIMIT ${limit}`,
     );
     const queryTimeMs = Date.now() - start;
 
-    res.json(transformGraphResponse(raw, queryTimeMs));
+    res.json(transformQueryResult(result, queryTimeMs));
   } catch (err) {
     next(err);
   }
@@ -29,13 +29,13 @@ graphRouter.get('/node/:id', async (req, res, next) => {
     const { id } = req.params;
 
     const start = Date.now();
-    const raw = await neo4jClient.query(
+    const result = await neo4jClient.run(
       'MATCH (n) WHERE elementId(n) = $id OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m',
       { id },
     );
     const queryTimeMs = Date.now() - start;
 
-    const data = transformGraphResponse(raw, queryTimeMs);
+    const data = transformQueryResult(result, queryTimeMs);
 
     if (data.nodes.length === 0) {
       res.status(404).json({ error: `Node with id "${id}" not found`, code: 'NODE_NOT_FOUND' });
@@ -56,7 +56,7 @@ graphRouter.get('/neighbors/:id', async (req, res, next) => {
     const depth = isNaN(depthParam) || depthParam < 1 ? 1 : Math.min(depthParam, 5);
 
     const start = Date.now();
-    const raw = await neo4jClient.query(
+    const result = await neo4jClient.run(
       `MATCH (n) WHERE elementId(n) = $id
        MATCH path = (n)-[*1..${depth}]-(m)
        UNWIND relationships(path) AS r
@@ -65,7 +65,7 @@ graphRouter.get('/neighbors/:id', async (req, res, next) => {
     );
     const queryTimeMs = Date.now() - start;
 
-    res.json(transformGraphResponse(raw, queryTimeMs));
+    res.json(transformQueryResult(result, queryTimeMs));
   } catch (err) {
     next(err);
   }

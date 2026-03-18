@@ -1,36 +1,79 @@
-import type { GraphData, GraphNode, GraphEdge, Neo4jRawResponse } from '../types.js';
+import neo4j, { type QueryResult, type Node, type Relationship, type Path, isInt } from 'neo4j-driver';
+import type { GraphData, GraphNode, GraphEdge } from '../types.js';
 
-export function transformGraphResponse(raw: Neo4jRawResponse, queryTimeMs: number): GraphData {
+/** Convert neo4j.Integer and nested values to plain JS types */
+function serializeValue(v: unknown): unknown {
+  if (isInt(v)) return v.toNumber();
+  if (Array.isArray(v)) return v.map(serializeValue);
+  if (v !== null && typeof v === 'object') {
+    return Object.fromEntries(
+      Object.entries(v as Record<string, unknown>).map(([k, val]) => [k, serializeValue(val)]),
+    );
+  }
+  return v;
+}
+
+function serializeProperties(props: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(props).map(([k, v]) => [k, serializeValue(v)]),
+  );
+}
+
+function addNode(raw: Node, map: Map<string, GraphNode>) {
+  const id = raw.elementId;
+  if (!map.has(id)) {
+    map.set(id, {
+      id,
+      labels: raw.labels,
+      properties: serializeProperties(raw.properties as Record<string, unknown>),
+      primaryLabel: raw.labels[0] ?? 'Unknown',
+    });
+  }
+}
+
+function addRelationship(raw: Relationship, map: Map<string, GraphEdge>) {
+  const id = raw.elementId;
+  if (!map.has(id)) {
+    map.set(id, {
+      id,
+      source: raw.startNodeElementId,
+      target: raw.endNodeElementId,
+      type: raw.type,
+      properties: serializeProperties(raw.properties as Record<string, unknown>),
+    });
+  }
+}
+
+function extractValue(
+  val: unknown,
+  nodesMap: Map<string, GraphNode>,
+  edgesMap: Map<string, GraphEdge>,
+) {
+  if (neo4j.isNode(val)) {
+    addNode(val as Node, nodesMap);
+  } else if (neo4j.isRelationship(val)) {
+    addRelationship(val as Relationship, edgesMap);
+  } else if (neo4j.isPath(val)) {
+    const path = val as Path;
+    addNode(path.start as Node, nodesMap);
+    addNode(path.end as Node, nodesMap);
+    for (const segment of path.segments) {
+      addNode(segment.start as Node, nodesMap);
+      addNode(segment.end as Node, nodesMap);
+      addRelationship(segment.relationship as Relationship, edgesMap);
+    }
+  } else if (Array.isArray(val)) {
+    for (const item of val) extractValue(item, nodesMap, edgesMap);
+  }
+}
+
+export function transformQueryResult(result: QueryResult, queryTimeMs: number): GraphData {
   const nodesMap = new Map<string, GraphNode>();
   const edgesMap = new Map<string, GraphEdge>();
 
-  for (const result of raw.results) {
-    for (const row of result.data) {
-      const graph = row.graph;
-      if (!graph) continue;
-
-      for (const rawNode of graph.nodes) {
-        if (!nodesMap.has(rawNode.id)) {
-          nodesMap.set(rawNode.id, {
-            id: rawNode.id,
-            labels: rawNode.labels,
-            properties: rawNode.properties,
-            primaryLabel: rawNode.labels[0] ?? 'Unknown',
-          });
-        }
-      }
-
-      for (const rawRel of graph.relationships) {
-        if (!edgesMap.has(rawRel.id)) {
-          edgesMap.set(rawRel.id, {
-            id: rawRel.id,
-            source: rawRel.startNode,
-            target: rawRel.endNode,
-            type: rawRel.type,
-            properties: rawRel.properties,
-          });
-        }
-      }
+  for (const record of result.records) {
+    for (const key of record.keys) {
+      extractValue(record.get(key), nodesMap, edgesMap);
     }
   }
 
@@ -48,16 +91,4 @@ export function transformGraphResponse(raw: Neo4jRawResponse, queryTimeMs: numbe
       queryTimeMs,
     },
   };
-}
-
-/** Extract a flat string[] from a single-column row result */
-export function extractStringColumn(raw: Neo4jRawResponse, columnIndex = 0): string[] {
-  const values: string[] = [];
-  for (const result of raw.results) {
-    for (const row of result.data) {
-      const val = row.row?.[columnIndex];
-      if (typeof val === 'string') values.push(val);
-    }
-  }
-  return values;
 }

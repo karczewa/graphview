@@ -1,4 +1,10 @@
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// .env lives at the monorepo root (three levels up from packages/backend/src/)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+dotenvConfig({ path: resolve(__dirname, '../../../.env') });
 
 function required(name: string): string {
   const val = process.env[name];
@@ -20,9 +26,9 @@ function optionalInt(name: string, defaultValue: number): number {
 
 export const config = {
   neo4j: {
-    url: required('NEO4J_URL'),
+    url: required('NEO4J_URI'),
     database: required('NEO4J_DATABASE'),
-    username: required('NEO4J_USERNAME'),
+    username: required('NEO4J_USER'),
     password: required('NEO4J_PASSWORD'),
   },
   port: optionalInt('BACKEND_PORT', 3001),

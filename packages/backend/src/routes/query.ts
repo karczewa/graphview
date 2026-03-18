@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { neo4jClient } from '../services/neo4jClient.js';
-import { transformGraphResponse } from '../services/graphTransformer.js';
+import { transformQueryResult } from '../services/graphTransformer.js';
 import { config } from '../config.js';
 
 export const queryRouter = Router();
@@ -23,18 +23,18 @@ queryRouter.post('/', async (req, res, next) => {
       return;
     }
 
-    const resolvedLimit = typeof limit === 'number' ? Math.min(limit, config.queryMaxLimit) : config.queryMaxLimit;
+    const resolvedLimit =
+      typeof limit === 'number' ? Math.min(limit, config.queryMaxLimit) : config.queryMaxLimit;
 
-    // Append LIMIT if not already in the query
     const finalCypher = /\bLIMIT\b/i.test(cypher)
       ? cypher
       : `${cypher.trimEnd()} LIMIT ${resolvedLimit}`;
 
     const start = Date.now();
-    const raw = await neo4jClient.query(finalCypher, params as Record<string, unknown>);
+    const result = await neo4jClient.run(finalCypher, params as Record<string, unknown>);
     const queryTimeMs = Date.now() - start;
 
-    res.json(transformGraphResponse(raw, queryTimeMs));
+    res.json(transformQueryResult(result, queryTimeMs));
   } catch (err) {
     next(err);
   }
