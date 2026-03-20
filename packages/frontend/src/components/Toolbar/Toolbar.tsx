@@ -4,7 +4,6 @@ import { useUiStore } from '../../store/uiStore.ts';
 import { canvasActions } from '../../lib/canvasActions.ts';
 import type { LayoutAlgorithm } from '../../store/uiStore.ts';
 import { SettingsModal } from '../Settings/SettingsModal.tsx';
-import { useSettingsStore } from '../../store/settingsStore.ts';
 
 const LAYOUTS: { value: LayoutAlgorithm; label: string }[] = [
   { value: 'force',    label: 'Force' },
@@ -25,7 +24,6 @@ export function Toolbar() {
   const { runQuery, loading } = useGraphStore();
   const { queryHistory, addToHistory, layoutAlgorithm, setLayoutAlgorithm,
           savedQueries, saveQuery, deleteSavedQuery } = useUiStore();
-  const { isDark, toggleTheme } = useSettingsStore();
   const historyRef = useRef<HTMLDivElement>(null);
   const savedRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -217,14 +215,6 @@ export function Toolbar() {
       <button onClick={() => canvasActions.call('fitToScreen')} className={btn} title="Fit to screen (F)">⊡ Fit</button>
       <button onClick={() => canvasActions.call('exportPNG')}   className={btn} title="Export as PNG">PNG</button>
       <button onClick={() => canvasActions.call('exportSVG')}   className={btn} title="Export as SVG">SVG</button>
-
-      <button
-        onClick={toggleTheme}
-        className={btn}
-        title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      >
-        {isDark ? '☀' : '☾'}
-      </button>
 
       <button onClick={() => setSettingsOpen(true)} className={btn} title="Settings">⚙</button>
 
