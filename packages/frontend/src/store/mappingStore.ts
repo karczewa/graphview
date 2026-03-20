@@ -13,8 +13,12 @@ export interface EdgeVisualConfig {
   width: number;
 }
 
-// Shape is determined by node label — only these three are mapped
-export const LABEL_SHAPES: Record<string, ShapeType> = {
+export const ALL_SHAPES: ShapeType[] = [
+  'circle', 'ellipse', 'square', 'diamond', 'triangle', 'pentagon', 'hexagon', 'star',
+];
+
+// Default shape assignments — users can change these via the left panel
+const DEFAULT_LABEL_SHAPES: Record<string, ShapeType> = {
   Table:     'square',
   View:      'hexagon',
   Procedure: 'diamond',
@@ -37,16 +41,19 @@ export const COLORS = [
 const EDGE_COLORS = ['#6b7280', '#9ca3af', '#4b5563', '#d1d5db'];
 
 interface MappingState {
-  colorMap: Record<string, string>;   // domain value → hex color
+  colorMap: Record<string, string>;        // domain value → hex color
+  labelShapes: Record<string, ShapeType>; // label → shape (user-editable)
   edgeConfig: Record<string, EdgeVisualConfig>;
 
   assignFromNodes: (nodes: GraphNode[]) => void;
   assignEdgeDefaults: (edgeTypes: string[]) => void;
   setEdgeConfig: (type: string, config: Partial<EdgeVisualConfig>) => void;
+  setLabelShape: (label: string, shape: ShapeType) => void;
 }
 
 export const useMapping = create<MappingState>((set, get) => ({
   colorMap: {},
+  labelShapes: { ...DEFAULT_LABEL_SHAPES },
   edgeConfig: {},
 
   assignFromNodes: (nodes) => {
@@ -82,14 +89,28 @@ export const useMapping = create<MappingState>((set, get) => ({
     set((s) => ({
       edgeConfig: { ...s.edgeConfig, [type]: { ...s.edgeConfig[type]!, ...config } },
     })),
+
+  setLabelShape: (label, shape) =>
+    set((s) => {
+      // Circle can always be assigned (it's the default/fallback)
+      // Any other shape must not already be taken by a different label
+      if (shape !== 'circle') {
+        const takenBy = Object.entries(s.labelShapes).find(
+          ([l, sh]) => l !== label && sh === shape,
+        );
+        if (takenBy) return s; // reject — shape already taken
+      }
+      return { labelShapes: { ...s.labelShapes, [label]: shape } };
+    }),
 }));
 
 // Resolve final VisualConfig for a single node
 export function resolveNodeConfig(
   node: GraphNode,
   colorMap: Record<string, string>,
+  labelShapes: Record<string, ShapeType>,
 ): VisualConfig {
-  const shape = LABEL_SHAPES[node.primaryLabel] ?? 'circle';
+  const shape = labelShapes[node.primaryLabel] ?? 'circle';
   const domain = String(node.properties[COLOR_PROPERTY] ?? '');
   const color = domain ? (colorMap[domain] ?? DEFAULT_COLOR) : DEFAULT_COLOR;
   return { color, shape, size: NODE_SIZE };

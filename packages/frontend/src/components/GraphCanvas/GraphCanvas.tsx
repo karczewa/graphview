@@ -120,7 +120,7 @@ function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, c
 export function GraphCanvas() {
   const svgRef = useRef<SVGSVGElement>(null);
   const { nodes, edges } = useGraphStore();
-  const { colorMap, edgeConfig } = useMapping();
+  const { colorMap, labelShapes, edgeConfig } = useMapping();
   const {
     selectedNodeId, highlightedLabel, searchQuery,
     pinnedNodeIds, hiddenNodeIds, layoutAlgorithm,
@@ -179,7 +179,7 @@ export function GraphCanvas() {
     // Pre-compute visual config for every node once
     const nodeConfigs = new Map<string, VisualConfig>();
     for (const node of simNodes) {
-      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap));
+      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap, labelShapes));
     }
 
     const nodeById = new Map(simNodes.map((n) => [n.id, n]));
@@ -312,7 +312,7 @@ export function GraphCanvas() {
       applySelectionRef.current = () => {};
       applyOpacityRef.current   = () => {};
     };
-  }, [nodes, edges, colorMap, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
+  }, [nodes, edges, colorMap, labelShapes, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
 
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);

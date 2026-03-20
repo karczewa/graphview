@@ -1,9 +1,10 @@
-import { useMapping, LABEL_SHAPES, COLOR_PROPERTY } from '../../store/mappingStore.ts';
+import { useMapping, ALL_SHAPES, COLOR_PROPERTY } from '../../store/mappingStore.ts';
+import type { ShapeType } from '../shapes/index.ts';
 import { useGraphStore } from '../../store/graphStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 
 export function LeftPanel() {
-  const { colorMap } = useMapping();
+  const { colorMap, labelShapes, setLabelShape } = useMapping();
   const { nodes, metadata } = useGraphStore();
   const { highlightedLabel, setHighlightedLabel, searchQuery, setSearchQuery, hiddenNodeIds, showAllNodes } = useUiStore();
 
@@ -19,10 +20,17 @@ export function LeftPanel() {
   }
   domainEntries.sort((a, b) => a.value.localeCompare(b.value));
 
-  // Which of the three known labels are present in the current graph
-  const presentLabels = Array.from(new Set(nodes.map((n) => n.primaryLabel)))
-    .filter((l) => l in LABEL_SHAPES)
-    .sort();
+  // All unique labels present in the current graph, sorted
+  const presentLabels = Array.from(new Set(nodes.map((n) => n.primaryLabel))).sort();
+
+  // Shapes already taken by other labels (excluding circle — always available)
+  const takenShapes = (excludeLabel: string): Set<ShapeType> => {
+    const taken = new Set<ShapeType>();
+    for (const [label, shape] of Object.entries(labelShapes)) {
+      if (label !== excludeLabel && shape !== 'circle') taken.add(shape);
+    }
+    return taken;
+  };
 
   const highlight = (val: string) =>
     setHighlightedLabel(highlightedLabel === val ? null : val);
@@ -68,25 +76,46 @@ export function LeftPanel() {
               </div>
             )}
 
-            {/* ── Shape legend (label) ────────────────────────────────── */}
+            {/* ── Shape — label ───────────────────────────────────────── */}
             {presentLabels.length > 0 && (
               <div>
                 <p className="text-xs text-gray-500 px-3 mb-1">Shape — label</p>
-                {presentLabels.map((label) => (
-                  <div
-                    key={label}
-                    onClick={() => highlight(label)}
-                    className={`flex items-center gap-2 px-3 py-1 mx-1 rounded cursor-pointer transition-colors ${
-                      highlightedLabel === label ? 'bg-gray-700' : 'hover:bg-gray-800'
-                    }`}
-                    title={`Highlight ${label} nodes`}
-                  >
-                    <span className="text-xs text-gray-500 w-14 flex-shrink-0">
-                      {LABEL_SHAPES[label]}
-                    </span>
-                    <span className="text-sm text-gray-300">{label}</span>
-                  </div>
-                ))}
+                {presentLabels.map((label) => {
+                  const currentShape = labelShapes[label] ?? 'circle';
+                  const taken = takenShapes(label);
+                  return (
+                    <div
+                      key={label}
+                      className={`flex items-center gap-2 px-3 py-1 mx-1 rounded transition-colors ${
+                        highlightedLabel === label ? 'bg-gray-700' : 'hover:bg-gray-800'
+                      }`}
+                    >
+                      <span
+                        className="text-sm text-gray-300 flex-1 cursor-pointer truncate"
+                        onClick={() => highlight(label)}
+                        title={`Highlight ${label} nodes`}
+                      >
+                        {label}
+                      </span>
+                      <select
+                        value={currentShape}
+                        onChange={(e) => setLabelShape(label, e.target.value as ShapeType)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-gray-800 text-gray-300 text-xs px-1 py-0.5 rounded border border-gray-700 focus:border-blue-500 focus:outline-none"
+                      >
+                        {ALL_SHAPES.map((shape) => (
+                          <option
+                            key={shape}
+                            value={shape}
+                            disabled={shape !== 'circle' && taken.has(shape)}
+                          >
+                            {shape}{shape !== 'circle' && taken.has(shape) ? ' (taken)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
