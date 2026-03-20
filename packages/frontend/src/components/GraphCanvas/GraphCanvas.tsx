@@ -50,6 +50,44 @@ function appendShape(
   }
 }
 
+function drawCanvasShape(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, r: number,
+  shape: ShapeType, color: string,
+) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  if (shape === 'circle') {
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  } else if (shape === 'ellipse') {
+    ctx.ellipse(cx, cy, r * 1.5, r, 0, 0, Math.PI * 2);
+  } else if (shape === 'square') {
+    ctx.rect(cx - r, cy - r, r * 2, r * 2);
+  } else if (shape === 'diamond') {
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy);
+    ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
+  } else {
+    const sides = shape === 'triangle' ? 3 : shape === 'pentagon' ? 5
+                : shape === 'hexagon' ? 6 : null;
+    if (sides !== null) {
+      for (let i = 0; i < sides; i++) {
+        const a = (Math.PI * 2 * i) / sides - Math.PI / 2;
+        const px = cx + r * Math.cos(a), py = cy + r * Math.sin(a);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+    } else { // star
+      for (let i = 0; i < 10; i++) {
+        const a = (Math.PI * i) / 5 - Math.PI / 2;
+        const rad = i % 2 === 0 ? r : r * 0.45;
+        const px = cx + rad * Math.cos(a), py = cy + rad * Math.sin(a);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+    }
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
 function nodeOpacity(
   d: SimNode,
   highlightedLabel: string | null,
@@ -541,6 +579,90 @@ export function GraphCanvas() {
         ctx.fillStyle = '#030712';
         ctx.fillRect(0, 0, outW, outH);
         ctx.drawImage(img, 0, 0, outW, outH);
+
+        // ── Legend ──────────────────────────────────────────────────────────
+        const { colorMap, labelShapes } = useMapping.getState();
+        const { nodes: allNodes } = useGraphStore.getState();
+
+        // Collect unique domains and labels present in the current graph
+        const domainsSeen = new Set<string>();
+        const labelsSeen  = new Set<string>();
+        for (const node of allNodes) {
+          const domain = String(node.properties[COLOR_PROPERTY] ?? '');
+          if (domain) domainsSeen.add(domain);
+          labelsSeen.add(node.primaryLabel);
+        }
+        const domainEntries = [...domainsSeen].map((d) => ({ name: d, color: colorMap[d] ?? '#94a3b8' }));
+        const labelEntries  = [...labelsSeen].map((l) => ({ name: l, shape: (labelShapes[l] ?? 'circle') as ShapeType }));
+
+        if (domainEntries.length === 0 && labelEntries.length === 0) {
+          URL.revokeObjectURL(url);
+          const a = document.createElement('a');
+          a.href = canvas.toDataURL('image/png'); a.download = 'graph.png'; a.click();
+          return;
+        }
+
+        const font     = 'ui-sans-serif, system-ui, Arial, sans-serif';
+        const pad      = 14;
+        const lineH    = 22;
+        const iconR    = 7;
+        const titleH   = 20;
+        const secGap   = 8;
+        const margin   = 24;
+
+        const hasDomains = domainEntries.length > 0;
+        const hasLabels  = labelEntries.length > 0;
+        const panelH =
+          pad +
+          (hasDomains ? titleH + domainEntries.length * lineH + (hasLabels ? secGap : 0) : 0) +
+          (hasLabels  ? titleH + labelEntries.length * lineH : 0) +
+          pad;
+        const panelW = 210;
+        const lx = outW - panelW - margin;
+        const ly = outH - panelH - margin;
+
+        // Panel background
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.strokeStyle = '#374151';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(lx, ly, panelW, panelH, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        let y = ly + pad;
+
+        if (hasDomains) {
+          ctx.fillStyle = '#9ca3af';
+          ctx.font = `bold 11px ${font}`;
+          ctx.fillText('DOMAIN', lx + pad, y + 12);
+          y += titleH;
+          for (const { name, color } of domainEntries) {
+            // Swatch circle
+            drawCanvasShape(ctx, lx + pad + iconR, y + iconR, iconR, 'circle', color);
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = `11px ${font}`;
+            ctx.fillText(name, lx + pad + iconR * 2 + 8, y + iconR + 4);
+            y += lineH;
+          }
+          if (hasLabels) y += secGap;
+        }
+
+        if (hasLabels) {
+          ctx.fillStyle = '#9ca3af';
+          ctx.font = `bold 11px ${font}`;
+          ctx.fillText('LABEL', lx + pad, y + 12);
+          y += titleH;
+          for (const { name, shape } of labelEntries) {
+            drawCanvasShape(ctx, lx + pad + iconR, y + iconR, iconR, shape, '#6b7280');
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = `11px ${font}`;
+            ctx.fillText(name, lx + pad + iconR * 2 + 8, y + iconR + 4);
+            y += lineH;
+          }
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         URL.revokeObjectURL(url);
         const a = document.createElement('a');
         a.href = canvas.toDataURL('image/png'); a.download = 'graph.png'; a.click();
