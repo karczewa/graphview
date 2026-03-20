@@ -33,7 +33,8 @@ queryRouter.post('/', async (req, res, next) => {
       ? cleanCypher
       : `${cleanCypher} LIMIT ${resolvedLimit}`;
 
-    const client = res.locals['neo4jClient'] as Neo4jClient;
+    const client = res.locals['neo4jClient'] as Neo4jClient | undefined;
+    if (!client) { res.status(500).json({ error: 'Neo4j client not initialised', code: 'INTERNAL_ERROR' }); return; }
     const start = Date.now();
     const result = await client.run(finalCypher, params as Record<string, unknown>);
     const queryTimeMs = Date.now() - start;

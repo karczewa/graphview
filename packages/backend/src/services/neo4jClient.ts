@@ -1,4 +1,5 @@
 import neo4j, { type Driver, type QueryResult } from 'neo4j-driver';
+import { createHash } from 'node:crypto';
 import { config } from '../config.js';
 
 export class Neo4jError extends Error {
@@ -86,7 +87,7 @@ export function getClientForCredentials(
   ) {
     return neo4jClient;
   }
-  const key = `${url}::${username}::${password}::${database}`;
+  const key = createHash('sha256').update(`${url}::${username}::${password}::${database}`).digest('hex');
   if (!clientCache.has(key)) {
     clientCache.set(key, new Neo4jClient(url, username, password, database));
   }

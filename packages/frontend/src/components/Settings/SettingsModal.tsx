@@ -78,6 +78,8 @@ export function SettingsModal({ onClose }: Props) {
     onClose();
   };
 
+  const urlValid = localUrl === '' || /^(bolt(\+s|ssc)?|neo4j(\+s|ssc)?):\/\/.+/.test(localUrl);
+
   const inputClass =
     'w-full bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 text-sm px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:outline-none';
   const labelClass = 'text-xs text-gray-500 mb-1';
@@ -113,9 +115,12 @@ export function SettingsModal({ onClose }: Props) {
                   value={localUrl}
                   onChange={(e) => { setLocalUrl(e.target.value); setTestStatus('idle'); }}
                   placeholder="bolt://localhost:7687"
-                  className={inputClass}
+                  className={`${inputClass} ${!urlValid ? 'border-red-400 dark:border-red-500' : ''}`}
                   spellCheck={false}
                 />
+                {!urlValid && (
+                  <p className="text-xs text-red-500 mt-1">Must start with bolt://, bolt+s://, neo4j://, etc.</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -153,14 +158,14 @@ export function SettingsModal({ onClose }: Props) {
               <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleTest}
-                  disabled={testStatus === 'testing' || testStatus === 'connecting'}
+                  disabled={!urlValid || testStatus === 'testing' || testStatus === 'connecting'}
                   className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-40 text-gray-700 dark:text-gray-300 text-sm rounded transition-colors"
                 >
                   {testStatus === 'testing' ? 'Testing…' : 'Test Connection'}
                 </button>
                 <button
                   onClick={handleConnect}
-                  disabled={testStatus === 'testing' || testStatus === 'connecting'}
+                  disabled={!urlValid || testStatus === 'testing' || testStatus === 'connecting'}
                   className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm rounded transition-colors"
                 >
                   {testStatus === 'connecting' ? 'Connecting…' : 'Connect'}

@@ -170,6 +170,13 @@ export function GraphCanvas() {
     setSelectedNode, setContextMenu,
   } = useUiStore();
 
+  // Keep stable refs so the D3 rebuild effect doesn't re-run when the store
+  // recreates these callbacks (their identity can change across renders)
+  const setSelectedNodeRef = useRef(setSelectedNode);
+  setSelectedNodeRef.current = setSelectedNode;
+  const setContextMenuRef = useRef(setContextMenu);
+  setContextMenuRef.current = setContextMenu;
+
   const positionsRef    = useRef<Map<string, { x: number; y: number }>>(new Map());
   const simNodesRef     = useRef<SimNode[]>([]);
   const nodeConfigsRef  = useRef<Map<string, VisualConfig>>(new Map());
@@ -252,6 +259,12 @@ export function GraphCanvas() {
 
     const visibleNodes = nodes.filter((n) => !hiddenNodeIds.has(n.id));
     if (visibleNodes.length === 0) return;
+    if (visibleNodes.length > 500) {
+      useUiStore.getState().addToast(
+        `Large graph (${visibleNodes.length} nodes) — rendering may be slow`,
+        'info',
+      );
+    }
 
     const g = svg.append('g');
     const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
@@ -360,12 +373,12 @@ export function GraphCanvas() {
       .attr('opacity', (d) => nodeOpacity(d, curHighlight, curSearch))
       .on('click', (event, d) => {
         event.stopPropagation();
-        setSelectedNode(d.id === useUiStore.getState().selectedNodeId ? null : d.id);
+        setSelectedNodeRef.current(d.id === useUiStore.getState().selectedNodeId ? null : d.id);
       })
       .on('contextmenu', (event, d) => {
         event.preventDefault();
         event.stopPropagation();
-        setContextMenu({ nodeId: d.id, x: event.clientX, y: event.clientY });
+        setContextMenuRef.current({ nodeId: d.id, x: event.clientX, y: event.clientY });
       })
       .call(
         d3.drag<SVGGElement, SimNode>()
@@ -397,7 +410,7 @@ export function GraphCanvas() {
       .attr('pointer-events', 'none')
       .text((d) => (d.properties['name'] as string) ?? d.primaryLabel);
 
-    svg.on('click', () => setSelectedNode(null));
+    svg.on('click', () => setSelectedNodeRef.current(null));
 
     applySelectionRef.current = (id) => {
       nodeEl.each(function (d) {
@@ -467,7 +480,7 @@ export function GraphCanvas() {
       applyOpacityRef.current    = () => {};
       applyEdgeLabelsRef.current = () => {};
     };
-  }, [nodes, edges, colorMap, labelShapes, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, isDark, setSelectedNode, setContextMenu]);
+  }, [nodes, edges, colorMap, labelShapes, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, isDark]);
 
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);

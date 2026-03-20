@@ -11,7 +11,8 @@ graphRouter.get('/', async (req, res, next) => {
     const limitParam = parseInt(String(req.query['limit'] ?? config.queryMaxLimit), 10);
     const limit = isNaN(limitParam) ? config.queryMaxLimit : Math.min(limitParam, config.queryMaxLimit);
 
-    const client = res.locals['neo4jClient'] as Neo4jClient;
+    const client = res.locals['neo4jClient'] as Neo4jClient | undefined;
+    if (!client) { res.status(500).json({ error: 'Neo4j client not initialised', code: 'INTERNAL_ERROR' }); return; }
     const start = Date.now();
     const result = await client.run(
       `MATCH (n) OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m LIMIT ${limit}`,
@@ -29,7 +30,8 @@ graphRouter.get('/node/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const client = res.locals['neo4jClient'] as Neo4jClient;
+    const client = res.locals['neo4jClient'] as Neo4jClient | undefined;
+    if (!client) { res.status(500).json({ error: 'Neo4j client not initialised', code: 'INTERNAL_ERROR' }); return; }
     const start = Date.now();
     const result = await client.run(
       'MATCH (n) WHERE elementId(n) = $id OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m',
@@ -57,7 +59,8 @@ graphRouter.get('/neighbors/:id', async (req, res, next) => {
     const depthParam = parseInt(String(req.query['depth'] ?? '1'), 10);
     const depth = isNaN(depthParam) || depthParam < 1 ? 1 : Math.min(depthParam, 5);
 
-    const client = res.locals['neo4jClient'] as Neo4jClient;
+    const client = res.locals['neo4jClient'] as Neo4jClient | undefined;
+    if (!client) { res.status(500).json({ error: 'Neo4j client not initialised', code: 'INTERNAL_ERROR' }); return; }
     const start = Date.now();
     const result = await client.run(
       `MATCH (n) WHERE elementId(n) = $id

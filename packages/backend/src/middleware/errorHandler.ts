@@ -14,7 +14,8 @@ export const errorHandler: ErrorRequestHandler = (
   }
 
   if (err instanceof Error) {
-    res.status(500).json({ error: err.message, code: 'INTERNAL_ERROR' });
+    console.error('[GraphView] Internal error:', err);
+    res.status(500).json({ error: 'An internal server error occurred', code: 'INTERNAL_ERROR' });
     return;
   }
 

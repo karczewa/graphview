@@ -31,6 +31,10 @@ export const useSettingsStore = create<SettingsState>()(
 
       toggleTheme: () => set((s) => ({ isDark: !s.isDark })),
     }),
-    { name: 'graphview-settings' },
+    {
+      name: 'graphview-settings',
+      // Never persist the password — users re-enter it each session
+      partialize: (s) => ({ url: s.url, username: s.username, database: s.database, maxNodes: s.maxNodes, isDark: s.isDark }),
+    },
   ),
 );
