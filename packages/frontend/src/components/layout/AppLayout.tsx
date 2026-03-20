@@ -17,7 +17,7 @@ export function AppLayout() {
       <StatusBar />
       <Toolbar />
       <div className="flex flex-1 overflow-hidden">
-        {leftPanelOpen && <div className="w-56 flex-shrink-0 overflow-hidden"><LeftPanel /></div>}
+        {leftPanelOpen && <div className="w-72 flex-shrink-0 overflow-hidden"><LeftPanel /></div>}
         <div className="flex-1 overflow-hidden relative">
           <GraphCanvas />
           {loading && (
@@ -26,7 +26,7 @@ export function AppLayout() {
             </div>
           )}
         </div>
-        {rightPanelOpen && <div className="w-64 flex-shrink-0 overflow-hidden"><RightPanel /></div>}
+        {rightPanelOpen && <div className="w-80 flex-shrink-0 overflow-hidden"><RightPanel /></div>}
       </div>
       <ContextMenu />
       <ToastContainer />

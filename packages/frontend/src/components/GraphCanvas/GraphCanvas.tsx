@@ -123,7 +123,7 @@ export function GraphCanvas() {
   const { colorMap, labelShapes, edgeConfig } = useMapping();
   const {
     selectedNodeId, highlightedLabel, searchQuery,
-    pinnedNodeIds, hiddenNodeIds, layoutAlgorithm,
+    pinnedNodeIds, hiddenNodeIds, hiddenEdgeTypes, layoutAlgorithm,
     setSelectedNode, setContextMenu,
   } = useUiStore();
 
@@ -131,8 +131,9 @@ export function GraphCanvas() {
   const simNodesRef  = useRef<SimNode[]>([]);
   const zoomRef      = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
-  const applySelectionRef = useRef<(id: string | null) => void>(() => {});
-  const applyOpacityRef   = useRef<(hl: string | null, sq: string) => void>(() => {});
+  const applySelectionRef    = useRef<(id: string | null) => void>(() => {});
+  const applyOpacityRef      = useRef<(hl: string | null, sq: string) => void>(() => {});
+  const applyEdgeLabelsRef   = useRef<(hidden: Set<string>) => void>(() => {});
 
   // ── Effect 1: rebuild ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -217,6 +218,11 @@ export function GraphCanvas() {
     const edgeLabelEl = linkGroup.selectAll<SVGTextElement, SimEdge>('text').data(simEdges).join('text')
       .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '9px')
       .attr('pointer-events', 'none').text((d) => d.type);
+
+    applyEdgeLabelsRef.current = (hidden: Set<string>) => {
+      edgeLabelEl.style('display', (d) => hidden.has(d.type) ? 'none' : null);
+    };
+    applyEdgeLabelsRef.current(useUiStore.getState().hiddenEdgeTypes);
 
     const curSelectedId = useUiStore.getState().selectedNodeId;
     const curHighlight  = useUiStore.getState().highlightedLabel;
@@ -309,8 +315,9 @@ export function GraphCanvas() {
           positionsRef.current.set(nd.id, { x: nd.x, y: nd.y });
       }
       svg.on('click', null);
-      applySelectionRef.current = () => {};
-      applyOpacityRef.current   = () => {};
+      applySelectionRef.current  = () => {};
+      applyOpacityRef.current    = () => {};
+      applyEdgeLabelsRef.current = () => {};
     };
   }, [nodes, edges, colorMap, labelShapes, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
 
@@ -321,6 +328,11 @@ export function GraphCanvas() {
   useEffect(() => {
     applyOpacityRef.current(highlightedLabel, searchQuery);
   }, [highlightedLabel, searchQuery]);
+
+  // ── Effect 4: edge label visibility ───────────────────────────────────────
+  useEffect(() => {
+    applyEdgeLabelsRef.current(hiddenEdgeTypes);
+  }, [hiddenEdgeTypes]);
 
   // ── Effect 4: register canvas actions ─────────────────────────────────────
   useEffect(() => {
@@ -358,18 +370,57 @@ export function GraphCanvas() {
     canvasActions.register('exportPNG', () => {
       const svgEl = svgRef.current;
       if (!svgEl) return;
-      const w = svgEl.clientWidth || 800, h = svgEl.clientHeight || 600;
-      const blob = new Blob([new XMLSerializer().serializeToString(svgEl)], { type: 'image/svg+xml' });
+      const simNodes = simNodesRef.current;
+
+      // Convert all node positions to screen space using current zoom transform
+      const t = d3.zoomTransform(svgEl);
+      const pad = 80;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const n of simNodes) {
+        const sx = t.applyX(n.x ?? 0);
+        const sy = t.applyY(n.y ?? 0);
+        if (sx < minX) minX = sx;
+        if (sy < minY) minY = sy;
+        if (sx > maxX) maxX = sx;
+        if (sy > maxY) maxY = sy;
+      }
+      if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 800; maxY = 450; }
+      minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+
+      // Expand bounding box to 16:9 ratio, keeping content centered
+      const contentW = maxX - minX, contentH = maxY - minY;
+      const ratio = 16 / 9;
+      let boxW = contentW, boxH = contentH;
+      if (contentW / contentH > ratio) {
+        boxH = contentW / ratio;
+      } else {
+        boxW = contentH * ratio;
+      }
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      const viewX = cx - boxW / 2, viewY = cy - boxH / 2;
+
+      // Clone SVG, set viewBox to the 16:9 region (SVG user coords = screen coords)
+      // and set output dimensions to 1920×1080 @ 2× = 3840×2160
+      const outW = 1920, outH = 1080, scale = 3;
+      const svgClone = svgEl.cloneNode(true) as SVGElement;
+      svgClone.setAttribute('width', String(outW));
+      svgClone.setAttribute('height', String(outH));
+      svgClone.setAttribute('viewBox', `${viewX} ${viewY} ${boxW} ${boxH}`);
+      const fontStyle = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      fontStyle.textContent = 'text { font-family: ui-sans-serif, system-ui, Arial, sans-serif; }';
+      svgClone.insertBefore(fontStyle, svgClone.firstChild);
+
+      const blob = new Blob([new XMLSerializer().serializeToString(svgClone)], { type: 'image/svg+xml' });
       const url = URL.createObjectURL(blob);
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
-        canvas.width = w * 2; canvas.height = h * 2;
+        canvas.width = outW * scale; canvas.height = outH * scale;
         const ctx = canvas.getContext('2d')!;
-        ctx.scale(2, 2);
+        ctx.scale(scale, scale);
         ctx.fillStyle = '#030712';
-        ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0, w, h);
+        ctx.fillRect(0, 0, outW, outH);
+        ctx.drawImage(img, 0, 0, outW, outH);
         URL.revokeObjectURL(url);
         const a = document.createElement('a');
         a.href = canvas.toDataURL('image/png'); a.download = 'graph.png'; a.click();

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 const MAX_HISTORY = 20;
 
@@ -27,6 +28,7 @@ interface UiState {
   contextMenu: ContextMenuState | null;
   pinnedNodeIds: Set<string>;
   hiddenNodeIds: Set<string>;
+  hiddenEdgeTypes: Set<string>;
   toasts: Toast[];
   layoutAlgorithm: LayoutAlgorithm;
 
@@ -41,12 +43,13 @@ interface UiState {
   togglePin: (nodeId: string) => void;
   hideNode: (nodeId: string) => void;
   showAllNodes: () => void;
+  toggleEdgeType: (type: string) => void;
   addToast: (message: string, type?: 'error' | 'info') => void;
   dismissToast: (id: string) => void;
   setLayoutAlgorithm: (layout: LayoutAlgorithm) => void;
 }
 
-export const useUiStore = create<UiState>((set) => ({
+export const useUiStore = create<UiState>()(persist((set) => ({
   selectedNodeId: null,
   selectedEdgeId: null,
   highlightedLabel: null,
@@ -57,6 +60,7 @@ export const useUiStore = create<UiState>((set) => ({
   contextMenu: null,
   pinnedNodeIds: new Set(),
   hiddenNodeIds: new Set(),
+  hiddenEdgeTypes: new Set(),
   toasts: [],
   layoutAlgorithm: 'force',
 
@@ -93,6 +97,13 @@ export const useUiStore = create<UiState>((set) => ({
 
   showAllNodes: () => set({ hiddenNodeIds: new Set() }),
 
+  toggleEdgeType: (type) =>
+    set((s) => {
+      const next = new Set(s.hiddenEdgeTypes);
+      next.has(type) ? next.delete(type) : next.add(type);
+      return { hiddenEdgeTypes: next };
+    }),
+
   addToast: (message, type = 'error') => {
     const id = `${Date.now()}-${Math.random()}`;
     set((s) => ({ toasts: [...s.toasts, { id, message, type }] }));
@@ -105,4 +116,11 @@ export const useUiStore = create<UiState>((set) => ({
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
   setLayoutAlgorithm: (layoutAlgorithm) => set({ layoutAlgorithm }),
+}), {
+  name: 'graphview-ui',
+  partialize: (s) => ({ hiddenEdgeTypes: [...s.hiddenEdgeTypes] }),
+  merge: (persisted: unknown, current) => {
+    const p = persisted as { hiddenEdgeTypes?: string[] };
+    return { ...current, hiddenEdgeTypes: new Set(p.hiddenEdgeTypes ?? []) };
+  },
 }));
