@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3';
 import { useGraphStore } from '../../store/graphStore.ts';
@@ -118,8 +118,9 @@ function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, c
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function GraphCanvas() {
-  const svgRef     = useRef<SVGSVGElement>(null);
-  const minimapRef = useRef<HTMLCanvasElement>(null);
+  const svgRef       = useRef<SVGSVGElement>(null);
+  const minimapRef   = useRef<HTMLCanvasElement>(null);
+  const [minimapVisible, setMinimapVisible] = useState(true);
   const { nodes, edges } = useGraphStore();
   const { colorMap, labelShapes, edgeConfig } = useMapping();
   const {
@@ -443,6 +444,11 @@ export function GraphCanvas() {
     }
   }, [highlightedLabel, searchQuery]);
 
+  // ── Effect: redraw minimap immediately when toggled on ────────────────────
+  useEffect(() => {
+    if (minimapVisible) drawMinimap();
+  }, [minimapVisible]);
+
   // ── Effect 4: edge label visibility ───────────────────────────────────────
   useEffect(() => {
     applyEdgeLabelsRef.current(hiddenEdgeTypes);
@@ -552,13 +558,24 @@ export function GraphCanvas() {
   return (
     <div className="w-full h-full relative">
       <svg ref={svgRef} className="w-full h-full bg-gray-950" style={{ display: 'block' }} />
-      <canvas
-        ref={minimapRef}
-        width={300}
-        height={180}
-        className="absolute top-3 right-3 rounded border border-gray-700 opacity-80 hover:opacity-100 transition-opacity"
-        style={{ background: '#0f172a' }}
-      />
+      <div className="absolute top-3 right-3 flex flex-col items-end gap-1">
+        {minimapVisible && (
+          <canvas
+            ref={minimapRef}
+            width={300}
+            height={180}
+            className="rounded border border-gray-700 opacity-80 hover:opacity-100 transition-opacity"
+            style={{ background: '#0f172a' }}
+          />
+        )}
+        <button
+          onClick={() => setMinimapVisible((v) => !v)}
+          className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs rounded border border-gray-700 transition-colors"
+          title={minimapVisible ? 'Hide minimap' : 'Show minimap'}
+        >
+          {minimapVisible ? '⊟ Map' : '⊞ Map'}
+        </button>
+      </div>
     </div>
   );
 }
