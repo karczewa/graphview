@@ -129,7 +129,11 @@ export function MindmapModal() {
       // All content centred on (cx, cy)
       const root = g.append('g').attr('transform', `translate(${cx},${cy})`);
 
-      // Links using d3.linkRadial — produces smooth bezier curves
+      // Node visual radius — used to offset link endpoints to the perimeter
+      const nodeR = (d: PNode) => (d.depth === 0 ? 18 : d.depth === 1 ? 9 : 6);
+
+      // Draw links from source perimeter → target perimeter using cubic bezier.
+      // This prevents all root edges from originating at a single center point.
       root.selectAll('path.link')
         .data(pointRoot.links())
         .join('path')
@@ -138,11 +142,31 @@ export function MindmapModal() {
         .attr('stroke', '#4B5563')
         .attr('stroke-width', (d) => (d.source.depth === 0 ? 2 : 1.5))
         .attr('opacity', 0.6)
-        .attr('d',
-          d3.linkRadial<d3.HierarchyPointLink<HNode>, PNode>()
-            .angle((d) => d.x)
-            .radius((d) => d.y),
-        );
+        .attr('d', (link) => {
+          const s = link.source as PNode;
+          const t = link.target as PNode;
+          const sx = nx(s), sy = ny(s);
+          const tx = nx(t), ty = ny(t);
+
+          // Unit vector from source → target
+          const dx = tx - sx, dy = ty - sy;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          const ux = dx / len, uy = dy / len;
+
+          // Offset start/end to node perimeters
+          const x1 = sx + ux * nodeR(s), y1 = sy + uy * nodeR(s);
+          const x2 = tx - ux * nodeR(t), y2 = ty - uy * nodeR(t);
+
+          // Control points: each pulls toward the centre (0,0) to create
+          // a gentle outward curve rather than a straight spoke
+          const pull = 0.45;
+          const cx1 = x1 + (0 - x1) * pull + ux * len * 0.35;
+          const cy1 = y1 + (0 - y1) * pull + uy * len * 0.35;
+          const cx2 = x2 + (0 - x2) * pull - ux * len * 0.35;
+          const cy2 = y2 + (0 - y2) * pull - uy * len * 0.35;
+
+          return `M${x1},${y1} C${cx1},${cy1} ${cx2},${cy2} ${x2},${y2}`;
+        });
 
       // Nodes
       const nodeG = root.selectAll<SVGGElement, PNode>('g.node')
@@ -153,9 +177,8 @@ export function MindmapModal() {
 
       nodeG.append('path')
         .attr('d', (d) => {
-          const r = d.depth === 0 ? 18 : d.depth === 1 ? 9 : 6;
           const shape = nodeShape(d.data.id);
-          return shape === 'circle' ? CIRCLE_PATH(r) : getShapePath(shape, r);
+          return shape === 'circle' ? CIRCLE_PATH(nodeR(d)) : getShapePath(shape, nodeR(d));
         })
         .attr('fill', (d) => nodeColor(d.data.id))
         .attr('stroke', '#111827')
@@ -165,8 +188,7 @@ export function MindmapModal() {
       nodeG.append('text')
         .attr('x', (d) => {
           if (d.depth === 0) return 0;
-          const r = d.depth === 1 ? 9 : 6;
-          return Math.sin(d.x) >= 0 ? r + 5 : -(r + 5);
+          return Math.sin(d.x) >= 0 ? nodeR(d) + 5 : -(nodeR(d) + 5);
         })
         .attr('dy', (d) => (d.depth === 0 ? 30 : '0.35em'))
         .attr('text-anchor', (d) => {
