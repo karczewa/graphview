@@ -9,7 +9,7 @@ function connectionKey(): string {
   return `${url || '_'}::${username || '_'}::${database || '_'}`;
 }
 
-export type LayoutAlgorithm = 'force' | 'circular' | 'grid' | 'radial';
+export type LayoutAlgorithm = 'force' | 'circular' | 'grid' | 'radial' | 'mindmap';
 
 export interface Toast {
   id: string;

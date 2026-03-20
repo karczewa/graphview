@@ -111,7 +111,12 @@ function nodeOpacity(
 }
 
 // Assign fixed positions for non-force layouts
-function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, cy: number) {
+function applyLayout(
+  simNodes: SimNode[],
+  layout: LayoutAlgorithm,
+  cx: number, cy: number,
+  simEdges: { source: string; target: string }[] = [],
+) {
   const n = simNodes.length;
   if (n === 0) return;
 
@@ -151,6 +156,91 @@ function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, c
         placed++;
       }
       ring++;
+    }
+  } else if (layout === 'mindmap') {
+    // Build adjacency list from edges
+    const adj = new Map<string, string[]>();
+    for (const node of simNodes) adj.set(node.id, []);
+    for (const e of simEdges) {
+      adj.get(e.source)?.push(e.target);
+      adj.get(e.target)?.push(e.source);
+    }
+
+    // Pick root: node with highest degree
+    const degreeMap = new Map(simNodes.map((nd) => [nd.id, adj.get(nd.id)?.length ?? 0]));
+    const root = [...degreeMap.entries()].reduce((a, b) => (b[1] > a[1] ? b : a))[0];
+
+    // BFS to build spanning tree — records parent and depth of each node
+    const parent = new Map<string, string | null>();
+    const depth  = new Map<string, number>();
+    const children = new Map<string, string[]>();
+    const queue = [root];
+    parent.set(root, null);
+    depth.set(root, 0);
+    for (const nd of simNodes) children.set(nd.id, []);
+
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      for (const nb of (adj.get(cur) ?? [])) {
+        if (!parent.has(nb)) {
+          parent.set(nb, cur);
+          depth.set(nb, (depth.get(cur) ?? 0) + 1);
+          children.get(cur)!.push(nb);
+          queue.push(nb);
+        }
+      }
+    }
+    // Isolated nodes (not reached by BFS) are placed at origin for now
+    for (const nd of simNodes) {
+      if (!depth.has(nd.id)) { depth.set(nd.id, 0); parent.set(nd.id, null); }
+    }
+
+    // Assign angular sectors recursively using d3.tree-style approach:
+    // each subtree gets a wedge proportional to its leaf count
+    const leafCount = new Map<string, number>();
+    const computeLeaves = (id: string): number => {
+      const ch = children.get(id) ?? [];
+      if (ch.length === 0) { leafCount.set(id, 1); return 1; }
+      const total = ch.reduce((s, c) => s + computeLeaves(c), 0);
+      leafCount.set(id, total);
+      return total;
+    };
+    computeLeaves(root);
+
+    // Radii per depth level — wider gaps near root, tighter near leaves
+    const levelRadius = (d: number) => d === 0 ? 0 : Math.min(cx, cy) * 0.82 * (1 - Math.pow(0.55, d));
+
+    const assignPositions = (id: string, angleStart: number, angleEnd: number) => {
+      const d = depth.get(id) ?? 0;
+      const r = levelRadius(d);
+      const angle = (angleStart + angleEnd) / 2;
+      const x = cx + r * Math.cos(angle);
+      const y = cy + r * Math.sin(angle);
+      const nd = simNodes.find((s) => s.id === id);
+      if (nd) { nd.fx = x; nd.fy = y; nd.x = x; nd.y = y; }
+
+      const ch = children.get(id) ?? [];
+      const totalLeaves = leafCount.get(id) ?? 1;
+      let cursor = angleStart;
+      for (const child of ch) {
+        const fraction = (leafCount.get(child) ?? 1) / totalLeaves;
+        const childAngleEnd = cursor + fraction * (angleEnd - angleStart);
+        assignPositions(child, cursor, childAngleEnd);
+        cursor = childAngleEnd;
+      }
+    };
+    assignPositions(root, -Math.PI, Math.PI);
+
+    // Place any disconnected nodes in a small cluster at bottom
+    let floatIdx = 0;
+    for (const nd of simNodes) {
+      if (nd.fx == null) {
+        const angle = (2 * Math.PI * floatIdx) / Math.max(1, simNodes.length);
+        nd.fx = cx + Math.cos(angle) * Math.min(cx, cy) * 0.9;
+        nd.fy = cy + Math.sin(angle) * Math.min(cx, cy) * 0.9;
+        nd.x = nd.fx; nd.y = nd.fy;
+        floatIdx++;
+      }
     }
   }
 }
@@ -313,7 +403,7 @@ export function GraphCanvas() {
     const n     = simNodes.length;
     const sqrtN = Math.sqrt(Math.max(1, n));
 
-    if (layoutAlgorithm !== 'force') applyLayout(simNodes, layoutAlgorithm, cx, cy);
+    if (layoutAlgorithm !== 'force') applyLayout(simNodes, layoutAlgorithm, cx, cy, simEdges.map((e) => ({ source: e.source as string, target: e.target as string })));
 
     // alphaDecay scales up with node count so larger graphs settle faster
     const alphaDecay = Math.min(0.15, Math.max(0.04, n / 1500));

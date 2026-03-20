@@ -11,6 +11,7 @@ const LAYOUTS: { value: LayoutAlgorithm; label: string }[] = [
   { value: 'circular', label: 'Circular' },
   { value: 'grid',     label: 'Grid' },
   { value: 'radial',   label: 'Radial' },
+  { value: 'mindmap',  label: 'Mind Map' },
 ];
 
 const btn = 'px-2 py-1.5 bg-gray-200 hover:bg-gray-300 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 text-sm rounded transition-colors flex-shrink-0';
