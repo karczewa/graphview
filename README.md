@@ -26,7 +26,11 @@ cd graphview
 npm install
 ```
 
-### 3. Create the environment file
+### 3. Configure the connection
+
+You can connect to Neo4j in two ways:
+
+**Option A — environment file (server defaults)**
 
 Create a `.env` file in the root of the repository:
 
@@ -52,6 +56,10 @@ Optional variables:
 | `QUERY_MAX_LIMIT` | `500` | Maximum number of nodes returned per query |
 | `REQUEST_TIMEOUT_MS` | `30000` | Neo4j query timeout in milliseconds |
 
+**Option B — connect from inside the app**
+
+Skip the `.env` file entirely and enter your credentials through the **Settings** panel after launching the app. See [Connecting from inside the app](#connecting-from-inside-the-app) below.
+
 ### 4. Start the application
 
 ```bash
@@ -75,6 +83,25 @@ If `neo4jConnected` is `false`, double-check your `.env` values and make sure Ne
 ---
 
 ## Using the app
+
+### Connecting from inside the app
+
+You can enter or change your Neo4j credentials at any time without restarting the server. Click the **⚙ Settings** button in the toolbar to open the Settings panel.
+
+Under **Connection**, fill in:
+
+- **Neo4j URL** — Bolt URI, e.g. `bolt://localhost:7687`
+- **Username** and **Password**
+- **Database** — usually `neo4j`
+
+Then click:
+
+- **Test Connection** — verifies the credentials without changing anything
+- **Connect** — saves the credentials, tests the connection, and reloads the graph immediately
+
+Leave all fields blank to fall back to the server's `.env` defaults.
+
+---
 
 ### Running queries
 
@@ -134,6 +161,7 @@ The left panel shows a legend for the current graph:
 | Pin node | Right-click → Pin, or select and press `P` |
 | Hide node | Right-click → Hide, or select and press `H` / `Delete` |
 | Expand neighbors | Right-click → Expand, or use the Details panel |
+| Open mind map | Right-click → View as Mindmap |
 | Fit to screen | Click **⊡ Fit** in the toolbar or press `F` |
 
 ---
@@ -145,6 +173,18 @@ Click any node to open its details:
 - **Labels** — Neo4j labels on the node
 - **Properties** — all key-value properties
 - **Expand neighbors** — load 1, 2, or 3 hops of connected nodes into the current graph
+
+---
+
+### Mind map
+
+Right-click any node and choose **View as Mindmap** to open a full-screen radial mind map centered on that node.
+
+- Use the **1 hop / 2 hops / 3 hops** buttons to control how far the map expands from the center node
+- Nodes use the same colors and shapes as the main graph
+- Children cluster around their parent at each hop level, not on a global ring
+- Click **PNG** to export a high-resolution image of the current map
+- Press `Escape` or click **✕** to close
 
 ---
 
@@ -174,7 +214,7 @@ Use the **layout dropdown** in the toolbar to switch between:
 |-----|--------|
 | `Ctrl+Enter` | Run query |
 | `F` | Fit graph to screen |
-| `Escape` | Deselect node |
+| `Escape` | Deselect node / close mind map |
 | `H` or `Delete` | Hide selected node |
 | `P` | Pin / unpin selected node |
 
