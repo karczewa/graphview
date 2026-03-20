@@ -118,7 +118,8 @@ function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, c
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function GraphCanvas() {
-  const svgRef = useRef<SVGSVGElement>(null);
+  const svgRef     = useRef<SVGSVGElement>(null);
+  const minimapRef = useRef<HTMLCanvasElement>(null);
   const { nodes, edges } = useGraphStore();
   const { colorMap, labelShapes, edgeConfig } = useMapping();
   const {
@@ -127,13 +128,58 @@ export function GraphCanvas() {
     setSelectedNode, setContextMenu,
   } = useUiStore();
 
-  const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
-  const simNodesRef  = useRef<SimNode[]>([]);
-  const zoomRef      = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const positionsRef    = useRef<Map<string, { x: number; y: number }>>(new Map());
+  const simNodesRef     = useRef<SimNode[]>([]);
+  const nodeConfigsRef  = useRef<Map<string, VisualConfig>>(new Map());
+  const zoomRef         = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
 
-  const applySelectionRef    = useRef<(id: string | null) => void>(() => {});
-  const applyOpacityRef      = useRef<(hl: string | null, sq: string) => void>(() => {});
-  const applyEdgeLabelsRef   = useRef<(hidden: Set<string>) => void>(() => {});
+  const applySelectionRef  = useRef<(id: string | null) => void>(() => {});
+  const applyOpacityRef    = useRef<(hl: string | null, sq: string) => void>(() => {});
+  const applyEdgeLabelsRef = useRef<(hidden: Set<string>) => void>(() => {});
+
+  const drawMinimap = () => {
+    const canvas = minimapRef.current;
+    const svgEl  = svgRef.current;
+    if (!canvas || !svgEl) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const simNodes = simNodesRef.current;
+    if (simNodes.length === 0) return;
+
+    const mw = canvas.width, mh = canvas.height;
+    const xs = simNodes.map((n) => n.x ?? 0);
+    const ys = simNodes.map((n) => n.y ?? 0);
+    const pad = 20;
+    const minX = Math.min(...xs) - pad, maxX = Math.max(...xs) + pad;
+    const minY = Math.min(...ys) - pad, maxY = Math.max(...ys) + pad;
+    const s = Math.min(mw / (maxX - minX), mh / (maxY - minY));
+    const ox = (mw - (maxX - minX) * s) / 2 - minX * s;
+    const oy = (mh - (maxY - minY) * s) / 2 - minY * s;
+
+    ctx.clearRect(0, 0, mw, mh);
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, mw, mh);
+
+    // Nodes as dots
+    for (const n of simNodes) {
+      const config = nodeConfigsRef.current.get(n.id);
+      ctx.fillStyle = config?.color ?? '#94a3b8';
+      ctx.beginPath();
+      ctx.arc((n.x ?? 0) * s + ox, (n.y ?? 0) * s + oy, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Viewport rectangle
+    const t = d3.zoomTransform(svgEl);
+    const vw = svgEl.clientWidth, vh = svgEl.clientHeight;
+    const rx = (-t.x / t.k) * s + ox;
+    const ry = (-t.y / t.k) * s + oy;
+    const rw = (vw / t.k) * s;
+    const rh = (vh / t.k) * s;
+    ctx.strokeStyle = '#60a5fa';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rx, ry, rw, rh);
+  };
 
   // ── Effect 1: rebuild ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -158,7 +204,7 @@ export function GraphCanvas() {
     const g = svg.append('g');
     const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.05, 8])
-      .on('zoom', (e) => g.attr('transform', e.transform.toString()));
+      .on('zoom', (e) => { g.attr('transform', e.transform.toString()); drawMinimap(); });
     svg.call(zoomBehavior);
     zoomRef.current = zoomBehavior;
 
@@ -182,6 +228,7 @@ export function GraphCanvas() {
     for (const node of simNodes) {
       nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap, labelShapes));
     }
+    nodeConfigsRef.current = nodeConfigs;
 
     const nodeById = new Map(simNodes.map((n) => [n.id, n]));
     const simEdges: SimEdge[] = edges
@@ -303,9 +350,10 @@ export function GraphCanvas() {
         .attr('y', (d) => (((d.source as SimNode).y ?? 0) + ((d.target as SimNode).y ?? 0)) / 2);
 
       nodeEl.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+      drawMinimap();
     };
 
-    if (layoutAlgorithm !== 'force') tick();
+    if (layoutAlgorithm !== 'force') { tick(); drawMinimap(); }
     else simulation.on('tick', tick);
 
     return () => {
@@ -324,9 +372,28 @@ export function GraphCanvas() {
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);
 
-  // ── Effect 3: opacity ─────────────────────────────────────────────────────
+  // ── Effect 3: opacity + search fly-to ────────────────────────────────────
   useEffect(() => {
     applyOpacityRef.current(highlightedLabel, searchQuery);
+
+    if (searchQuery && svgRef.current && zoomRef.current) {
+      const matching = simNodesRef.current.filter((n) =>
+        String(n.properties['name'] ?? '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        n.primaryLabel.toLowerCase().includes(searchQuery.toLowerCase()),
+      );
+      if (matching.length > 0) {
+        const xs = matching.map((n) => n.x ?? 0);
+        const ys = matching.map((n) => n.y ?? 0);
+        const minX = Math.min(...xs) - 80, maxX = Math.max(...xs) + 80;
+        const minY = Math.min(...ys) - 80, maxY = Math.max(...ys) + 80;
+        const w = svgRef.current.clientWidth || 800, h = svgRef.current.clientHeight || 600;
+        const scale = Math.min(0.9 * w / (maxX - minX), 0.9 * h / (maxY - minY), 4);
+        const tx = w / 2 - scale * ((minX + maxX) / 2);
+        const ty = h / 2 - scale * ((minY + maxY) / 2);
+        d3.select(svgRef.current).transition().duration(400)
+          .call(zoomRef.current.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+      }
+    }
   }, [highlightedLabel, searchQuery]);
 
   // ── Effect 4: edge label visibility ───────────────────────────────────────
@@ -436,6 +503,15 @@ export function GraphCanvas() {
   }, []);
 
   return (
-    <svg ref={svgRef} className="w-full h-full bg-gray-950" style={{ display: 'block' }} />
+    <div className="w-full h-full relative">
+      <svg ref={svgRef} className="w-full h-full bg-gray-950" style={{ display: 'block' }} />
+      <canvas
+        ref={minimapRef}
+        width={300}
+        height={180}
+        className="absolute top-3 right-3 rounded border border-gray-700 opacity-80 hover:opacity-100 transition-opacity"
+        style={{ background: '#0f172a' }}
+      />
+    </div>
   );
 }
