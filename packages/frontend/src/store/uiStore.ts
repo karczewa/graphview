@@ -17,6 +17,12 @@ interface ContextMenuState {
   y: number;
 }
 
+export interface SavedQuery {
+  id: string;
+  name: string;
+  query: string;
+}
+
 interface UiState {
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
@@ -25,6 +31,7 @@ interface UiState {
   leftPanelOpen: boolean;
   rightPanelOpen: boolean;
   queryHistory: string[];
+  savedQueries: SavedQuery[];
   contextMenu: ContextMenuState | null;
   pinnedNodeIds: Set<string>;
   hiddenNodeIds: Set<string>;
@@ -39,6 +46,8 @@ interface UiState {
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
   addToHistory: (query: string) => void;
+  saveQuery: (name: string, query: string) => void;
+  deleteSavedQuery: (id: string) => void;
   setContextMenu: (menu: ContextMenuState | null) => void;
   togglePin: (nodeId: string) => void;
   hideNode: (nodeId: string) => void;
@@ -57,6 +66,7 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   leftPanelOpen: true,
   rightPanelOpen: true,
   queryHistory: [],
+  savedQueries: [],
   contextMenu: null,
   pinnedNodeIds: new Set(),
   hiddenNodeIds: new Set(),
@@ -75,6 +85,14 @@ export const useUiStore = create<UiState>()(persist((set) => ({
     set((s) => ({
       queryHistory: [query, ...s.queryHistory.filter((q) => q !== query)].slice(0, MAX_HISTORY),
     })),
+
+  saveQuery: (name, query) =>
+    set((s) => ({
+      savedQueries: [...s.savedQueries, { id: `${Date.now()}`, name, query }],
+    })),
+
+  deleteSavedQuery: (id) =>
+    set((s) => ({ savedQueries: s.savedQueries.filter((q) => q.id !== id) })),
 
   setContextMenu: (menu) => set({ contextMenu: menu }),
 
@@ -118,9 +136,16 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   setLayoutAlgorithm: (layoutAlgorithm) => set({ layoutAlgorithm }),
 }), {
   name: 'graphview-ui',
-  partialize: (s) => ({ hiddenEdgeTypes: [...s.hiddenEdgeTypes] }),
+  partialize: (s) => ({
+    hiddenEdgeTypes: [...s.hiddenEdgeTypes],
+    savedQueries: s.savedQueries,
+  }),
   merge: (persisted: unknown, current) => {
-    const p = persisted as { hiddenEdgeTypes?: string[] };
-    return { ...current, hiddenEdgeTypes: new Set(p.hiddenEdgeTypes ?? []) };
+    const p = persisted as { hiddenEdgeTypes?: string[]; savedQueries?: SavedQuery[] };
+    return {
+      ...current,
+      hiddenEdgeTypes: new Set(p.hiddenEdgeTypes ?? []),
+      savedQueries: p.savedQueries ?? [],
+    };
   },
 }));
