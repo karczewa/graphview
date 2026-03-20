@@ -3,6 +3,7 @@ import { useGraphStore } from '../../store/graphStore.ts';
 import { useUiStore } from '../../store/uiStore.ts';
 import { canvasActions } from '../../lib/canvasActions.ts';
 import type { LayoutAlgorithm } from '../../store/uiStore.ts';
+import { SettingsModal } from '../Settings/SettingsModal.tsx';
 
 const LAYOUTS: { value: LayoutAlgorithm; label: string }[] = [
   { value: 'force',    label: 'Force' },
@@ -17,6 +18,7 @@ export function Toolbar() {
   const [savedOpen, setSavedOpen] = useState(false);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { runQuery, loading } = useGraphStore();
   const { queryHistory, addToHistory, layoutAlgorithm, setLayoutAlgorithm,
           savedQueries, saveQuery, deleteSavedQuery } = useUiStore();
@@ -231,6 +233,16 @@ export function Toolbar() {
       >
         SVG
       </button>
+
+      <button
+        onClick={() => setSettingsOpen(true)}
+        className="px-2 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-400 text-sm rounded transition-colors flex-shrink-0"
+        title="Settings"
+      >
+        ⚙
+      </button>
+
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }
