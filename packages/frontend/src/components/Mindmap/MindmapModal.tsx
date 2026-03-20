@@ -7,7 +7,6 @@ import { getShapePath } from '../shapes/index.ts';
 import type { GraphNode } from '../../types.ts';
 
 type HNode = { id: string; children?: HNode[] };
-type PNode = d3.HierarchyPointNode<HNode>;
 
 const CIRCLE_PATH = (r: number) =>
   `M 0,${-r} A ${r},${r} 0 1,1 0,${r} A ${r},${r} 0 1,1 0,${-r}`;
@@ -98,118 +97,137 @@ export function MindmapModal() {
       const cx = W / 2, cy = H / 2;
       centerRef.current = { cx, cy };
 
-      // Scale outer radius so leaves never overlap
-      const totalLeaves = countLeaves(mindmapNodeId);
-      const MIN_ARC_PX   = 30;
-      const minOuterR    = (totalLeaves * MIN_ARC_PX) / (2 * Math.PI);
-      const outerR       = Math.max(Math.min(W, H) * 0.42, minOuterR);
+      // ── Recursive fan layout ────────────────────────────────────────────────
+      // Each node's children are spread in a fan centred on the direction from
+      // the node's parent, so hop-2 nodes cluster around their hop-1 parent
+      // rather than all sitting on one global outer ring.
 
-      // Build radial tree — d3.tree uses x=angle [0..2π], y=radius [0..outerR]
-      const pointRoot = d3.tree<HNode>()
-        .size([2 * Math.PI, outerR])
-        .separation((a, b) => (a.parent === b.parent ? 1 : 2) / Math.max(1, a.depth))
-        (d3.hierarchy<HNode>(buildHNode(mindmapNodeId)));
+      const MIN_GAP = 30; // minimum arc gap between sibling nodes (px)
 
-      // d3.linkRadial convention: angle 0 = top, x grows clockwise
-      // node screen position (relative to centre):
-      const nx = (d: PNode) =>  d.y * Math.sin(d.x);
-      const ny = (d: PNode) => -d.y * Math.cos(d.x);
+      type Pos = { x: number; y: number; depth: number };
+      const positions = new Map<string, Pos>();
+      // parent→child pairs for link drawing
+      const links: Array<{ src: string; tgt: string }> = [];
 
-      // SVG setup
+      const place = (
+        id: string,
+        x: number, y: number,
+        angle: number,       // direction this node extends from its parent
+        sector: number,      // angular width available for this node's children
+        depth: number,
+      ) => {
+        positions.set(id, { x, y, depth });
+        const ch = sortByLabel(childrenMap.get(id) ?? []);
+        if (ch.length === 0) return;
+
+        const totalLeaves = ch.reduce((s, c) => s + countLeaves(c), 0);
+
+        // Radius: far enough that siblings have at least MIN_GAP of arc space
+        const levelR = Math.max(130, (MIN_GAP * totalLeaves) / Math.max(0.01, sector));
+
+        let cursor = angle - sector / 2;
+        for (const childId of ch) {
+          const leaves    = countLeaves(childId);
+          const childSector = (leaves / totalLeaves) * sector;
+          const childAngle  = cursor + childSector / 2;
+          cursor += childSector;
+
+          const childX = x + levelR * Math.cos(childAngle);
+          const childY = y + levelR * Math.sin(childAngle);
+          links.push({ src: id, tgt: childId });
+          // Narrow sector slightly so sub-children don't overlap siblings
+          place(childId, childX, childY, childAngle, childSector * 0.82, depth + 1);
+        }
+      };
+
+      // Root at origin; its children spread over full 360°
+      positions.set(mindmapNodeId, { x: 0, y: 0, depth: 0 });
+      const rootCh = sortByLabel(childrenMap.get(mindmapNodeId) ?? []);
+      const rootLeaves = rootCh.reduce((s, c) => s + countLeaves(c), 0);
+      const rootR = Math.max(160, (MIN_GAP * rootLeaves) / (2 * Math.PI));
+      let rootCursor = -Math.PI;
+      for (const childId of rootCh) {
+        const leaves      = countLeaves(childId);
+        const childSector = (leaves / rootLeaves) * 2 * Math.PI;
+        const childAngle  = rootCursor + childSector / 2;
+        rootCursor += childSector;
+        const childX = rootR * Math.cos(childAngle);
+        const childY = rootR * Math.sin(childAngle);
+        links.push({ src: mindmapNodeId, tgt: childId });
+        place(childId, childX, childY, childAngle, childSector * 0.82, 1);
+      }
+
+      // Visual radius per depth level
+      const visR = (d: number) => d === 0 ? 18 : d === 1 ? 9 : 6;
+
+      // ── SVG setup ──────────────────────────────────────────────────────────
       const svg = d3.select(svgEl);
       svg.selectAll('*').remove();
       const g = svg.append('g');
-
       svg.call(
         d3.zoom<SVGSVGElement, unknown>()
           .scaleExtent([0.05, 4])
           .on('zoom', (event) => g.attr('transform', event.transform)),
       );
+      const rootG = g.append('g').attr('transform', `translate(${cx},${cy})`);
 
-      // All content centred on (cx, cy)
-      const root = g.append('g').attr('transform', `translate(${cx},${cy})`);
-
-      // Node visual radius — used to offset link endpoints to the perimeter
-      const nodeR = (d: PNode) => (d.depth === 0 ? 18 : d.depth === 1 ? 9 : 6);
-
-      // Draw links from source perimeter → target perimeter using cubic bezier.
-      // This prevents all root edges from originating at a single center point.
-      root.selectAll('path.link')
-        .data(pointRoot.links())
+      // ── Links ──────────────────────────────────────────────────────────────
+      rootG.selectAll('path.link')
+        .data(links)
         .join('path')
         .attr('class', 'link')
         .attr('fill', 'none')
         .attr('stroke', '#4B5563')
-        .attr('stroke-width', (d) => (d.source.depth === 0 ? 2 : 1.5))
+        .attr('stroke-width', (d) => (positions.get(d.src)!.depth === 0 ? 2 : 1.5))
         .attr('opacity', 0.6)
-        .attr('d', (link) => {
-          const s = link.source as PNode;
-          const t = link.target as PNode;
-          const sx = nx(s), sy = ny(s);
-          const tx = nx(t), ty = ny(t);
-
-          // Unit vector from source → target
-          const dx = tx - sx, dy = ty - sy;
+        .attr('d', (d) => {
+          const s = positions.get(d.src)!;
+          const t = positions.get(d.tgt)!;
+          const dx = t.x - s.x, dy = t.y - s.y;
           const len = Math.sqrt(dx * dx + dy * dy) || 1;
           const ux = dx / len, uy = dy / len;
-
-          // Offset start/end to node perimeters
-          const x1 = sx + ux * nodeR(s), y1 = sy + uy * nodeR(s);
-          const x2 = tx - ux * nodeR(t), y2 = ty - uy * nodeR(t);
-
-          // For root→depth-1: pull control points toward centre so edges
-          // arc outward from the node perimeter in a fan shape.
-          // For deeper edges: simple forward bezier that follows the line.
-          let bx1: number, by1: number, bx2: number, by2: number;
-          if (s.depth === 0) {
-            const pull = 0.4;
-            bx1 = x1 + (0 - x1) * pull + ux * len * 0.35;
-            by1 = y1 + (0 - y1) * pull + uy * len * 0.35;
-            bx2 = x2 + (0 - x2) * pull - ux * len * 0.35;
-            by2 = y2 + (0 - y2) * pull - uy * len * 0.35;
-          } else {
-            bx1 = x1 + ux * len * 0.33;
-            by1 = y1 + uy * len * 0.33;
-            bx2 = x2 - ux * len * 0.33;
-            by2 = y2 - uy * len * 0.33;
-          }
-          const cx1 = bx1, cy1 = by1, cx2 = bx2, cy2 = by2;
-
-          return `M${x1},${y1} C${cx1},${cy1} ${cx2},${cy2} ${x2},${y2}`;
+          const sr = visR(s.depth), tr = visR(t.depth);
+          // Start/end at node perimeter
+          const x1 = s.x + ux * sr, y1 = s.y + uy * sr;
+          const x2 = t.x - ux * tr, y2 = t.y - uy * tr;
+          // Gentle S-curve
+          return `M${x1},${y1} C${x1 + ux * len * 0.4},${y1 + uy * len * 0.4} ${x2 - ux * len * 0.4},${y2 - uy * len * 0.4} ${x2},${y2}`;
         });
 
-      // Nodes
-      const nodeG = root.selectAll<SVGGElement, PNode>('g.node')
-        .data(pointRoot.descendants() as PNode[])
+      // ── Nodes ──────────────────────────────────────────────────────────────
+      const allNodes = [...positions.entries()].map(([id, pos]) => ({ id, ...pos }));
+
+      const nodeG = rootG.selectAll<SVGGElement, typeof allNodes[0]>('g.node')
+        .data(allNodes)
         .join('g')
         .attr('class', 'node')
-        .attr('transform', (d) => `translate(${nx(d)},${ny(d)})`);
+        .attr('transform', (d) => `translate(${d.x},${d.y})`);
 
       nodeG.append('path')
         .attr('d', (d) => {
-          const shape = nodeShape(d.data.id);
-          return shape === 'circle' ? CIRCLE_PATH(nodeR(d)) : getShapePath(shape, nodeR(d));
+          const r = visR(d.depth);
+          const shape = nodeShape(d.id);
+          return shape === 'circle' ? CIRCLE_PATH(r) : getShapePath(shape, r);
         })
-        .attr('fill', (d) => nodeColor(d.data.id))
+        .attr('fill', (d) => nodeColor(d.id))
         .attr('stroke', '#111827')
         .attr('stroke-width', (d) => (d.depth === 0 ? 2.5 : 1.5));
 
-      // Labels: horizontal text, anchored outside the node relative to screen centre
       nodeG.append('text')
         .attr('x', (d) => {
           if (d.depth === 0) return 0;
-          return Math.sin(d.x) >= 0 ? nodeR(d) + 5 : -(nodeR(d) + 5);
+          return d.x >= 0 ? visR(d.depth) + 5 : -(visR(d.depth) + 5);
         })
         .attr('dy', (d) => (d.depth === 0 ? 30 : '0.35em'))
         .attr('text-anchor', (d) => {
           if (d.depth === 0) return 'middle';
-          return Math.sin(d.x) >= 0 ? 'start' : 'end';
+          return d.x >= 0 ? 'start' : 'end';
         })
         .attr('font-size', (d) => (d.depth === 0 ? 12 : d.depth === 1 ? 10 : 9))
         .attr('font-weight', (d) => (d.depth === 0 ? 'bold' : 'normal'))
         .attr('fill', '#d1d5db')
         .attr('pointer-events', 'none')
-        .text((d) => nodeLabel(d.data.id));
+        .text((d) => nodeLabel(d.id));
 
       setStatus('idle');
     } catch (e) {
