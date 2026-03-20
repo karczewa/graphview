@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../../store/settingsStore.ts';
+import { useGraphStore } from '../../store/graphStore.ts';
 import { api } from '../../api/client.ts';
 
 interface Props {
   onClose: () => void;
 }
 
-type TestStatus = 'idle' | 'testing' | 'ok' | 'error';
+type TestStatus = 'idle' | 'testing' | 'connecting' | 'ok' | 'error';
 
 export function SettingsModal({ onClose }: Props) {
   const { url, username, password, database, maxNodes, setConnection, setMaxNodes } =
     useSettingsStore();
+  const fetchGraph = useGraphStore((s) => s.fetchGraph);
 
   const [localUrl,      setLocalUrl]      = useState(url);
   const [localUsername, setLocalUsername] = useState(username);
@@ -39,6 +41,30 @@ export function SettingsModal({ onClose }: Props) {
         setTestStatus('error');
         setTestError(result.error ?? 'Connection failed');
       }
+    } catch (e) {
+      setTestStatus('error');
+      setTestError(e instanceof Error ? e.message : 'Connection failed');
+    }
+  };
+
+  const handleConnect = async () => {
+    setTestStatus('connecting');
+    setTestError('');
+    try {
+      const result = await api.testConnection(localUrl, localUsername, localPassword, localDatabase);
+      if (!result.ok) {
+        setTestStatus('error');
+        setTestError(result.error ?? 'Connection failed');
+        return;
+      }
+      // Persist credentials so all subsequent API calls use them
+      setConnection(localUrl, localUsername, localPassword, localDatabase);
+      const parsed = parseInt(localMaxNodes, 10);
+      if (!isNaN(parsed) && parsed > 0) setMaxNodes(parsed);
+      setTestStatus('ok');
+      onClose();
+      // Reload graph with the new connection (credentials are now in the store)
+      fetchGraph();
     } catch (e) {
       setTestStatus('error');
       setTestError(e instanceof Error ? e.message : 'Connection failed');
@@ -124,13 +150,20 @@ export function SettingsModal({ onClose }: Props) {
                   spellCheck={false}
                 />
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleTest}
-                  disabled={testStatus === 'testing'}
+                  disabled={testStatus === 'testing' || testStatus === 'connecting'}
                   className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-300 text-sm rounded transition-colors"
                 >
                   {testStatus === 'testing' ? 'Testing…' : 'Test Connection'}
+                </button>
+                <button
+                  onClick={handleConnect}
+                  disabled={testStatus === 'testing' || testStatus === 'connecting'}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white text-sm rounded transition-colors"
+                >
+                  {testStatus === 'connecting' ? 'Connecting…' : 'Connect'}
                 </button>
                 {testStatus === 'ok' && (
                   <span className="text-sm text-green-400">✓ Connected</span>
