@@ -13,7 +13,7 @@ export function AppLayout() {
   const { loading } = useGraphStore();
 
   return (
-    <div className="h-full flex flex-col bg-gray-950 text-white">
+    <div className="h-full flex flex-col bg-gray-100 dark:bg-gray-950 text-gray-900 dark:text-white">
       <StatusBar />
       <Toolbar />
       <div className="flex flex-1 overflow-hidden">
@@ -21,7 +21,7 @@ export function AppLayout() {
         <div className="flex-1 overflow-hidden relative">
           <GraphCanvas />
           {loading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-950/60 pointer-events-none">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-100/60 dark:bg-gray-950/60 pointer-events-none">
               <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
             </div>
           )}

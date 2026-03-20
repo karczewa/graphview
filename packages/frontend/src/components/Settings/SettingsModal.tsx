@@ -79,7 +79,7 @@ export function SettingsModal({ onClose }: Props) {
   };
 
   const inputClass =
-    'w-full bg-gray-900 text-gray-200 text-sm px-3 py-1.5 rounded border border-gray-700 focus:border-blue-500 focus:outline-none';
+    'w-full bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-200 text-sm px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:outline-none';
   const labelClass = 'text-xs text-gray-500 mb-1';
 
   return (
@@ -88,13 +88,13 @@ export function SettingsModal({ onClose }: Props) {
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onMouseDown={(e) => { if (e.target === backdropRef.current) onClose(); }}
     >
-      <div className="w-[420px] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl flex flex-col">
+      <div className="w-[420px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
-          <h2 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">Settings</h2>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider">Settings</h2>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-300 text-lg leading-none"
+            className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 text-lg leading-none"
           >
             ✕
           </button>
@@ -154,7 +154,7 @@ export function SettingsModal({ onClose }: Props) {
                 <button
                   onClick={handleTest}
                   disabled={testStatus === 'testing' || testStatus === 'connecting'}
-                  className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-40 text-gray-300 text-sm rounded transition-colors"
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 disabled:opacity-40 text-gray-700 dark:text-gray-300 text-sm rounded transition-colors"
                 >
                   {testStatus === 'testing' ? 'Testing…' : 'Test Connection'}
                 </button>
@@ -174,7 +174,7 @@ export function SettingsModal({ onClose }: Props) {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-gray-600">
+              <p className="text-xs text-gray-400 dark:text-gray-600">
                 Leave blank to use server defaults (env vars).
               </p>
             </div>
@@ -195,7 +195,7 @@ export function SettingsModal({ onClose }: Props) {
                 onChange={(e) => setLocalMaxNodes(e.target.value)}
                 className={`${inputClass} w-32`}
               />
-              <p className="text-xs text-gray-600 mt-1">
+              <p className="text-xs text-gray-400 dark:text-gray-600 mt-1">
                 Caps how many nodes are returned. Lower values improve performance.
               </p>
             </div>
@@ -203,10 +203,10 @@ export function SettingsModal({ onClose }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-700">
+        <div className="flex justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700">
           <button
             onClick={onClose}
-            className="px-4 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded transition-colors"
+            className="px-4 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded transition-colors"
           >
             Cancel
           </button>

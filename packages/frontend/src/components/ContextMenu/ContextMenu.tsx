@@ -33,8 +33,8 @@ export function ContextMenu() {
   const item = (label: string, onClick: () => void, danger = false) => (
     <button
       key={label}
-      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-gray-700 transition-colors ${
-        danger ? 'text-red-400' : 'text-gray-300'
+      className={`w-full text-left px-3 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+        danger ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'
       }`}
       onClick={(e) => { e.stopPropagation(); onClick(); setContextMenu(null); }}
     >
@@ -46,10 +46,10 @@ export function ContextMenu() {
     <div
       ref={menuRef}
       style={{ position: 'fixed', left, top, zIndex: 50, width: menuW }}
-      className="bg-gray-800 border border-gray-700 rounded shadow-xl py-1"
+      className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-xl py-1"
       onClick={(e) => e.stopPropagation()}
     >
-      <p className="px-3 py-1 text-xs text-gray-500 border-b border-gray-700 mb-1 truncate">
+      <p className="px-3 py-1 text-xs text-gray-500 border-b border-gray-200 dark:border-gray-700 mb-1 truncate">
         {nodeId.split(':').pop()}
       </p>
 
@@ -57,7 +57,7 @@ export function ContextMenu() {
       {item('Expand 2 hops', () => expandNode(nodeId, 2))}
       {item('Expand 3 hops', () => expandNode(nodeId, 3))}
 
-      <div className="border-t border-gray-700 my-1" />
+      <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
 
       {item(isPinned ? '⊘ Unpin node' : '📌 Pin node', () => togglePin(nodeId))}
       {item('✕ Hide node', () => hideNode(nodeId), true)}
