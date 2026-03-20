@@ -217,6 +217,7 @@ Use the **layout dropdown** in the toolbar to switch between:
 | `Escape` | Deselect node / close mind map |
 | `H` or `Delete` | Hide selected node |
 | `P` | Pin / unpin selected node |
+| `Ctrl+Z` | Undo last hide / show-all |
 
 ---
 

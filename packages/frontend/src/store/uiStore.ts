@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { useSettingsStore } from './settingsStore.ts';
 
 const MAX_HISTORY = 20;
+const MAX_UNDO = 20;
 
 function connectionKey(): string {
   const { url, username, database } = useSettingsStore.getState();
@@ -42,6 +43,7 @@ interface UiState {
   mindmapNodeId: string | null;
   pinnedNodeIds: Set<string>;
   hiddenNodeIds: Set<string>;
+  hideHistory: Set<string>[];
   hiddenEdgeTypes: Set<string>;
   toasts: Toast[];
   layoutAlgorithm: LayoutAlgorithm;
@@ -60,6 +62,7 @@ interface UiState {
   togglePin: (nodeId: string) => void;
   hideNode: (nodeId: string) => void;
   showAllNodes: () => void;
+  undoHide: () => void;
   toggleEdgeType: (type: string) => void;
   addToast: (message: string, type?: 'error' | 'info') => void;
   dismissToast: (id: string) => void;
@@ -79,6 +82,7 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   mindmapNodeId: null,
   pinnedNodeIds: new Set(),
   hiddenNodeIds: new Set(),
+  hideHistory: [],
   hiddenEdgeTypes: new Set(),
   toasts: [],
   layoutAlgorithm: 'force',
@@ -127,11 +131,26 @@ export const useUiStore = create<UiState>()(persist((set) => ({
       next.add(nodeId);
       return {
         hiddenNodeIds: next,
+        hideHistory: [...s.hideHistory, s.hiddenNodeIds].slice(-MAX_UNDO),
         selectedNodeId: s.selectedNodeId === nodeId ? null : s.selectedNodeId,
       };
     }),
 
-  showAllNodes: () => set({ hiddenNodeIds: new Set() }),
+  showAllNodes: () =>
+    set((s) => ({
+      hiddenNodeIds: new Set(),
+      hideHistory: [...s.hideHistory, s.hiddenNodeIds].slice(-MAX_UNDO),
+    })),
+
+  undoHide: () =>
+    set((s) => {
+      if (s.hideHistory.length === 0) return s;
+      const prev = s.hideHistory[s.hideHistory.length - 1];
+      return {
+        hiddenNodeIds: prev,
+        hideHistory: s.hideHistory.slice(0, -1),
+      };
+    }),
 
   toggleEdgeType: (type) =>
     set((s) => {
