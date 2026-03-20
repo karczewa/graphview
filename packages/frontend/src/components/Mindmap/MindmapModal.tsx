@@ -220,10 +220,53 @@ export function MindmapModal() {
 
   useEffect(() => { render(); }, [render]);
 
+  const exportPNG = () => {
+    const svgEl = svgRef.current;
+    if (!svgEl) return;
+
+    const W = svgEl.clientWidth  || 1920;
+    const H = svgEl.clientHeight || 1080;
+    const scale = 2;
+
+    const svgClone = svgEl.cloneNode(true) as SVGElement;
+    svgClone.setAttribute('width',  String(W));
+    svgClone.setAttribute('height', String(H));
+
+    // Inject background rect and font style
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('width', String(W)); bg.setAttribute('height', String(H));
+    bg.setAttribute('fill', '#030712');
+    svgClone.insertBefore(bg, svgClone.firstChild);
+
+    const fontStyle = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    fontStyle.textContent = 'text { font-family: ui-sans-serif, system-ui, Arial, sans-serif; }';
+    svgClone.insertBefore(fontStyle, svgClone.firstChild);
+
+    const blob = new Blob([new XMLSerializer().serializeToString(svgClone)], { type: 'image/svg+xml' });
+    const url  = URL.createObjectURL(blob);
+    const img  = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width  = W * scale;
+      canvas.height = H * scale;
+      const ctx = canvas.getContext('2d')!;
+      ctx.scale(scale, scale);
+      ctx.fillStyle = '#030712';
+      ctx.fillRect(0, 0, W, H);
+      ctx.drawImage(img, 0, 0, W, H);
+      URL.revokeObjectURL(url);
+      const a = document.createElement('a');
+      a.href = canvas.toDataURL('image/png');
+      a.download = `mindmap-${mindmapNodeId}.png`;
+      a.click();
+    };
+    img.src = url;
+  };
+
   if (!mindmapNodeId) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-gray-950/96 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex flex-col bg-gray-950">
       <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-700 flex-shrink-0">
         <h2 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">Mind Map</h2>
         <span className="text-xs text-gray-500">— {mindmapNodeId.split(':').pop()}</span>
@@ -244,8 +287,17 @@ export function MindmapModal() {
           ))}
         </div>
 
-        {status === 'loading' && <span className="text-xs text-gray-500 ml-2">Loading…</span>}
-        {status === 'error'   && <span className="text-xs text-red-400 ml-2">{error}</span>}
+        <button
+          onClick={exportPNG}
+          disabled={status === 'loading'}
+          className="px-2.5 py-1 text-xs rounded bg-gray-800 text-gray-400 hover:bg-gray-700 disabled:opacity-40 transition-colors"
+          title="Export as PNG"
+        >
+          PNG
+        </button>
+
+        {status === 'loading' && <span className="text-xs text-gray-500">Loading…</span>}
+        {status === 'error'   && <span className="text-xs text-red-400">{error}</span>}
 
         <button
           onClick={() => setMindmapNode(null)}
