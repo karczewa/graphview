@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react';
 import { useMapping, ALL_SHAPES, COLOR_PROPERTY } from '../../store/mappingStore.ts';
 import type { ShapeType } from '../shapes/index.ts';
 import { getShapePath } from '../shapes/index.ts';
@@ -22,6 +23,29 @@ export function LeftPanel() {
   const { colorMap, labelShapes, setLabelShape } = useMapping();
   const { nodes, metadata } = useGraphStore();
   const { highlightedLabel, setHighlightedLabel, searchQuery, setSearchQuery, hiddenNodeIds, showAllNodes, hiddenEdgeTypes, toggleEdgeType } = useUiStore();
+
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  const suggestions = searchQuery.trim().length > 0
+    ? Array.from(
+        new Map(
+          nodes
+            .map((n) => {
+              const name = String(n.properties['name'] ?? n.properties['Name'] ?? '');
+              const label = n.primaryLabel;
+              const display = name || label;
+              return { display, sub: name ? label : '', key: display };
+            })
+            .filter(({ display }) =>
+              display.toLowerCase().includes(searchQuery.toLowerCase()) &&
+              display.toLowerCase() !== searchQuery.toLowerCase(),
+            )
+            .map((s) => [s.key, s]),
+        ).values(),
+      ).slice(0, 8)
+    : [];
 
   // Unique domain values present in the current graph
   const domainEntries: { value: string; color: string }[] = [];
@@ -54,13 +78,44 @@ export function LeftPanel() {
     <div className="h-full flex flex-col bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800">
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 space-y-2">
         <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Legend</h2>
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search nodes…"
-          className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:outline-none placeholder-gray-500 dark:placeholder-gray-600"
-        />
+        <div ref={searchRef} className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => { setSearchQuery(e.target.value); setSuggestionsOpen(true); setActiveSuggestion(-1); }}
+            onFocus={() => setSuggestionsOpen(true)}
+            onBlur={(e) => { if (!searchRef.current?.contains(e.relatedTarget as Node)) setSuggestionsOpen(false); }}
+            onKeyDown={(e) => {
+              if (!suggestionsOpen || suggestions.length === 0) return;
+              if (e.key === 'ArrowDown') { e.preventDefault(); setActiveSuggestion((i) => Math.min(i + 1, suggestions.length - 1)); }
+              else if (e.key === 'ArrowUp') { e.preventDefault(); setActiveSuggestion((i) => Math.max(i - 1, 0)); }
+              else if (e.key === 'Enter' && activeSuggestion >= 0) { e.preventDefault(); setSearchQuery(suggestions[activeSuggestion].display); setSuggestionsOpen(false); }
+              else if (e.key === 'Escape') { setSuggestionsOpen(false); }
+            }}
+            placeholder="Search nodes…"
+            className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:outline-none placeholder-gray-500 dark:placeholder-gray-600"
+          />
+          {suggestionsOpen && suggestions.length > 0 && (
+            <ul className="absolute z-20 left-0 right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg overflow-hidden">
+              {suggestions.map((s, i) => (
+                <li key={s.key}>
+                  <button
+                    tabIndex={0}
+                    onMouseDown={(e) => { e.preventDefault(); setSearchQuery(s.display); setSuggestionsOpen(false); }}
+                    className={`w-full text-left px-3 py-1.5 text-sm flex items-baseline gap-2 transition-colors ${
+                      i === activeSuggestion
+                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                        : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    <span className="truncate">{s.display}</span>
+                    {s.sub && <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">{s.sub}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto py-2 space-y-4">
