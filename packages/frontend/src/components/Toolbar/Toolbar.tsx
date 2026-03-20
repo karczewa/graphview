@@ -87,7 +87,7 @@ export function Toolbar() {
           onChange={(e) => { setQuery(e.target.value); autoResize(); }}
           onKeyDown={handleKeyDown}
           placeholder="MATCH (n) RETURN n LIMIT 50    —    Ctrl+Enter to run"
-          className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:outline-none resize-none font-mono placeholder-gray-400 dark:placeholder-gray-600 overflow-hidden"
+          className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:outline-none resize-none font-mono placeholder-gray-500 dark:placeholder-gray-600 overflow-hidden"
           rows={1}
           style={{ minHeight: '2rem', maxHeight: '12rem' }}
           spellCheck={false}

@@ -9,6 +9,7 @@ import type { GraphNode, GraphEdge } from '../../types.ts';
 import { canvasActions } from '../../lib/canvasActions.ts';
 import type { LayoutAlgorithm } from '../../store/uiStore.ts';
 import type { VisualConfig } from '../../store/mappingStore.ts';
+import { useSettingsStore } from '../../store/settingsStore.ts';
 
 // ── D3 simulation types ────────────────────────────────────────────────────────
 
@@ -27,9 +28,10 @@ function appendShape(
   config: VisualConfig,
   selected: boolean,
   pinned: boolean,
+  defaultStroke = '#1e293b',
 ) {
   const r = config.size / 2;
-  const stroke = selected ? '#f59e0b' : '#1e293b';
+  const stroke = selected ? '#f59e0b' : defaultStroke;
   const strokeW = selected ? 3 : 1.5;
 
   if (config.shape === 'circle') {
@@ -46,7 +48,7 @@ function appendShape(
   if (pinned) {
     g.append('circle').attr('class', 'pin-dot')
       .attr('r', 4).attr('cy', -r - 5)
-      .attr('fill', '#f59e0b').attr('stroke', '#1e293b').attr('stroke-width', 1);
+      .attr('fill', '#f59e0b').attr('stroke', defaultStroke).attr('stroke-width', 1);
   }
 }
 
@@ -159,6 +161,7 @@ export function GraphCanvas() {
   const svgRef       = useRef<SVGSVGElement>(null);
   const minimapRef   = useRef<HTMLCanvasElement>(null);
   const [minimapVisible, setMinimapVisible] = useState(true);
+  const isDark = useSettingsStore((s) => s.isDark);
   const { nodes, edges } = useGraphStore();
   const { colorMap, labelShapes, edgeConfig } = useMapping();
   const {
@@ -224,6 +227,16 @@ export function GraphCanvas() {
   useEffect(() => {
     if (!svgRef.current) return;
 
+    // Theme-aware colors for D3 elements
+    const th = {
+      bg:          isDark ? '#030712' : '#f1f5f9',
+      arrow:       isDark ? '#4b5563' : '#94a3b8',
+      edgeDefault: isDark ? '#4b5563' : '#94a3b8',
+      edgeLabel:   isDark ? '#6b7280' : '#475569',
+      nodeStroke:  isDark ? '#1e293b' : '#cbd5e1',
+      nodeLabel:   isDark ? '#e2e8f0' : '#1e293b',
+    };
+
     const svg = d3.select(svgRef.current);
     const width  = svgRef.current.clientWidth  || 800;
     const height = svgRef.current.clientHeight || 600;
@@ -235,7 +248,7 @@ export function GraphCanvas() {
       .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
       .attr('refX', 10).attr('refY', 0)
       .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#4b5563');
+      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', th.arrow);
 
     const visibleNodes = nodes.filter((n) => !hiddenNodeIds.has(n.id));
     if (visibleNodes.length === 0) return;
@@ -325,12 +338,12 @@ export function GraphCanvas() {
     const nodeGroup = g.append('g').attr('class', 'nodes');
 
     const linkEl = linkGroup.selectAll<SVGLineElement, SimEdge>('line').data(simEdges).join('line')
-      .attr('stroke', (d) => edgeConfig[d.type]?.color ?? '#4b5563')
+      .attr('stroke', (d) => edgeConfig[d.type]?.color ?? th.edgeDefault)
       .attr('stroke-width', (d) => edgeConfig[d.type]?.width ?? 1.5)
       .attr('marker-end', 'url(#arrow)');
 
     const edgeLabelEl = linkGroup.selectAll<SVGTextElement, SimEdge>('text').data(simEdges).join('text')
-      .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '9px')
+      .attr('text-anchor', 'middle').attr('fill', th.edgeLabel).attr('font-size', '9px')
       .attr('pointer-events', 'none').text((d) => d.type);
 
     applyEdgeLabelsRef.current = (hidden: Set<string>) => {
@@ -374,11 +387,12 @@ export function GraphCanvas() {
         config,
         d.id === curSelectedId,
         pinnedNodeIds.has(d.id),
+        th.nodeStroke,
       );
     });
 
     nodeEl.append('text')
-      .attr('text-anchor', 'middle').attr('fill', '#e2e8f0').attr('font-size', '11px')
+      .attr('text-anchor', 'middle').attr('fill', th.nodeLabel).attr('font-size', '11px')
       .attr('dy', (d) => (nodeConfigs.get(d.id)?.size ?? 36) / 2 + 13)
       .attr('pointer-events', 'none')
       .text((d) => (d.properties['name'] as string) ?? d.primaryLabel);
@@ -389,7 +403,7 @@ export function GraphCanvas() {
       nodeEl.each(function (d) {
         const sel = d.id === id;
         d3.select(this).select('.node-shape')
-          .attr('stroke', sel ? '#f59e0b' : '#1e293b')
+          .attr('stroke', sel ? '#f59e0b' : th.nodeStroke)
           .attr('stroke-width', sel ? 3 : 1.5);
       });
     };
@@ -453,7 +467,7 @@ export function GraphCanvas() {
       applyOpacityRef.current    = () => {};
       applyEdgeLabelsRef.current = () => {};
     };
-  }, [nodes, edges, colorMap, labelShapes, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
+  }, [nodes, edges, colorMap, labelShapes, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, isDark, setSelectedNode, setContextMenu]);
 
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);
@@ -576,7 +590,7 @@ export function GraphCanvas() {
         canvas.width = outW * scale; canvas.height = outH * scale;
         const ctx = canvas.getContext('2d')!;
         ctx.scale(scale, scale);
-        ctx.fillStyle = '#030712';
+        ctx.fillStyle = useSettingsStore.getState().isDark ? '#030712' : '#f1f5f9';
         ctx.fillRect(0, 0, outW, outH);
         ctx.drawImage(img, 0, 0, outW, outH);
 
@@ -679,7 +693,7 @@ export function GraphCanvas() {
 
   return (
     <div className="w-full h-full relative">
-      <svg ref={svgRef} className="w-full h-full bg-gray-950" style={{ display: 'block' }} />
+      <svg ref={svgRef} className="w-full h-full bg-slate-100 dark:bg-gray-950" style={{ display: 'block' }} />
       <div className="absolute top-3 right-3 flex flex-col items-end gap-1">
         {minimapVisible && (
           <canvas

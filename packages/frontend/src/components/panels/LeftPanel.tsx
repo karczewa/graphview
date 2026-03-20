@@ -59,13 +59,13 @@ export function LeftPanel() {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search nodes…"
-          className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:outline-none placeholder-gray-400 dark:placeholder-gray-600"
+          className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 focus:border-blue-500 focus:outline-none placeholder-gray-500 dark:placeholder-gray-600"
         />
       </div>
 
       <div className="flex-1 overflow-y-auto py-2 space-y-4">
         {nodes.length === 0 ? (
-          <p className="text-sm text-gray-400 dark:text-gray-600 px-4 py-4 text-center">No data loaded</p>
+          <p className="text-sm text-gray-500 dark:text-gray-600 px-4 py-4 text-center">No data loaded</p>
         ) : (
           <>
             {/* ── Color legend (domain) ───────────────────────────────── */}

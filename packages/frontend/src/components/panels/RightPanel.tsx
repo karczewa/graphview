@@ -15,7 +15,7 @@ export function RightPanel() {
 
       <div className="flex-1 overflow-y-auto px-4 py-3">
         {!node ? (
-          <p className="text-sm text-gray-400 dark:text-gray-600 text-center py-4">Click a node to inspect it</p>
+          <p className="text-sm text-gray-500 dark:text-gray-600 text-center py-4">Click a node to inspect it</p>
         ) : (
           <div className="space-y-4">
             {/* Labels */}
@@ -65,7 +65,7 @@ export function RightPanel() {
             {/* Node ID */}
             <div>
               <p className="text-sm text-gray-500 mb-1">ID</p>
-              <p className="text-sm text-gray-400 dark:text-gray-600 break-all font-mono">{node.id}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-600 break-all font-mono">{node.id}</p>
             </div>
           </div>
         )}
