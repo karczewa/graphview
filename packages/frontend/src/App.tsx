@@ -3,12 +3,19 @@ import { AppLayout } from './components/layout/AppLayout.tsx';
 import { useGraphStore } from './store/graphStore.ts';
 import { useMapping } from './store/mappingStore.ts';
 import { useUiStore } from './store/uiStore.ts';
+import { useSettingsStore } from './store/settingsStore.ts';
 import { api } from './api/client.ts';
 import { canvasActions } from './lib/canvasActions.ts';
 
 export default function App() {
   const { fetchGraph, nodes } = useGraphStore();
   const { assignFromNodes, assignEdgeDefaults } = useMapping();
+  const isDark = useSettingsStore((s) => s.isDark);
+
+  // Sync dark/light class on <html>
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDark);
+  }, [isDark]);
 
   useEffect(() => {
     api.schema()

@@ -6,9 +6,9 @@ export function StatusBar() {
   const { selectedNodeId, toggleLeftPanel, toggleRightPanel } = useUiStore();
 
   return (
-    <div className="h-8 flex items-center justify-between px-3 bg-gray-900 border-b border-gray-800 text-xs text-gray-400 flex-shrink-0">
+    <div className="h-8 flex items-center justify-between px-3 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
       <div className="flex items-center gap-4">
-        <button onClick={toggleLeftPanel} className="hover:text-gray-200 transition-colors">
+        <button onClick={toggleLeftPanel} className="hover:text-gray-800 dark:hover:text-gray-200 transition-colors">
           ☰ Schema
         </button>
         {metadata && (
@@ -27,7 +27,7 @@ export function StatusBar() {
             {selectedNodeId}
           </span>
         )}
-        <button onClick={toggleRightPanel} className="hover:text-gray-200 transition-colors">
+        <button onClick={toggleRightPanel} className="hover:text-gray-800 dark:hover:text-gray-200 transition-colors">
           Details ☰
         </button>
       </div>
