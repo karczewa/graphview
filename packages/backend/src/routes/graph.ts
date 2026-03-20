@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { neo4jClient } from '../services/neo4jClient.js';
+import type { Neo4jClient } from '../services/neo4jClient.js';
 import { transformQueryResult } from '../services/graphTransformer.js';
 import { config } from '../config.js';
 
@@ -11,8 +11,9 @@ graphRouter.get('/', async (req, res, next) => {
     const limitParam = parseInt(String(req.query['limit'] ?? config.queryMaxLimit), 10);
     const limit = isNaN(limitParam) ? config.queryMaxLimit : Math.min(limitParam, config.queryMaxLimit);
 
+    const client = res.locals['neo4jClient'] as Neo4jClient;
     const start = Date.now();
-    const result = await neo4jClient.run(
+    const result = await client.run(
       `MATCH (n) OPTIONAL MATCH (n)-[r]->(m) RETURN n, r, m LIMIT ${limit}`,
     );
     const queryTimeMs = Date.now() - start;
@@ -28,8 +29,9 @@ graphRouter.get('/node/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
+    const client = res.locals['neo4jClient'] as Neo4jClient;
     const start = Date.now();
-    const result = await neo4jClient.run(
+    const result = await client.run(
       'MATCH (n) WHERE elementId(n) = $id OPTIONAL MATCH (n)-[r]-(m) RETURN n, r, m',
       { id },
     );
@@ -55,8 +57,9 @@ graphRouter.get('/neighbors/:id', async (req, res, next) => {
     const depthParam = parseInt(String(req.query['depth'] ?? '1'), 10);
     const depth = isNaN(depthParam) || depthParam < 1 ? 1 : Math.min(depthParam, 5);
 
+    const client = res.locals['neo4jClient'] as Neo4jClient;
     const start = Date.now();
-    const result = await neo4jClient.run(
+    const result = await client.run(
       `MATCH (n) WHERE elementId(n) = $id
        MATCH path = (n)-[*1..${depth}]-(m)
        UNWIND relationships(path) AS r

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { neo4jClient } from '../services/neo4jClient.js';
+import type { Neo4jClient } from '../services/neo4jClient.js';
 import { transformQueryResult } from '../services/graphTransformer.js';
 import { config } from '../config.js';
 
@@ -33,8 +33,9 @@ queryRouter.post('/', async (req, res, next) => {
       ? cleanCypher
       : `${cleanCypher} LIMIT ${resolvedLimit}`;
 
+    const client = res.locals['neo4jClient'] as Neo4jClient;
     const start = Date.now();
-    const result = await neo4jClient.run(finalCypher, params as Record<string, unknown>);
+    const result = await client.run(finalCypher, params as Record<string, unknown>);
     const queryTimeMs = Date.now() - start;
 
     res.json(transformQueryResult(result, queryTimeMs));

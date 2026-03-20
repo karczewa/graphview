@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import type { SimulationNodeDatum, SimulationLinkDatum } from 'd3';
 import { useGraphStore } from '../../store/graphStore.ts';
@@ -9,6 +9,7 @@ import type { GraphNode, GraphEdge } from '../../types.ts';
 import { canvasActions } from '../../lib/canvasActions.ts';
 import type { LayoutAlgorithm } from '../../store/uiStore.ts';
 import type { VisualConfig } from '../../store/mappingStore.ts';
+import { useSettingsStore } from '../../store/settingsStore.ts';
 
 // ── D3 simulation types ────────────────────────────────────────────────────────
 
@@ -27,9 +28,10 @@ function appendShape(
   config: VisualConfig,
   selected: boolean,
   pinned: boolean,
+  defaultStroke = '#1e293b',
 ) {
   const r = config.size / 2;
-  const stroke = selected ? '#f59e0b' : '#1e293b';
+  const stroke = selected ? '#f59e0b' : defaultStroke;
   const strokeW = selected ? 3 : 1.5;
 
   if (config.shape === 'circle') {
@@ -46,8 +48,46 @@ function appendShape(
   if (pinned) {
     g.append('circle').attr('class', 'pin-dot')
       .attr('r', 4).attr('cy', -r - 5)
-      .attr('fill', '#f59e0b').attr('stroke', '#1e293b').attr('stroke-width', 1);
+      .attr('fill', '#f59e0b').attr('stroke', defaultStroke).attr('stroke-width', 1);
   }
+}
+
+function drawCanvasShape(
+  ctx: CanvasRenderingContext2D,
+  cx: number, cy: number, r: number,
+  shape: ShapeType, color: string,
+) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  if (shape === 'circle') {
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  } else if (shape === 'ellipse') {
+    ctx.ellipse(cx, cy, r * 1.5, r, 0, 0, Math.PI * 2);
+  } else if (shape === 'square') {
+    ctx.rect(cx - r, cy - r, r * 2, r * 2);
+  } else if (shape === 'diamond') {
+    ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy);
+    ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy);
+  } else {
+    const sides = shape === 'triangle' ? 3 : shape === 'pentagon' ? 5
+                : shape === 'hexagon' ? 6 : null;
+    if (sides !== null) {
+      for (let i = 0; i < sides; i++) {
+        const a = (Math.PI * 2 * i) / sides - Math.PI / 2;
+        const px = cx + r * Math.cos(a), py = cy + r * Math.sin(a);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+    } else { // star
+      for (let i = 0; i < 10; i++) {
+        const a = (Math.PI * i) / 5 - Math.PI / 2;
+        const rad = i % 2 === 0 ? r : r * 0.45;
+        const px = cx + rad * Math.cos(a), py = cy + rad * Math.sin(a);
+        i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+    }
+  }
+  ctx.closePath();
+  ctx.fill();
 }
 
 function nodeOpacity(
@@ -118,8 +158,10 @@ function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, c
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function GraphCanvas() {
-  const svgRef     = useRef<SVGSVGElement>(null);
-  const minimapRef = useRef<HTMLCanvasElement>(null);
+  const svgRef       = useRef<SVGSVGElement>(null);
+  const minimapRef   = useRef<HTMLCanvasElement>(null);
+  const [minimapVisible, setMinimapVisible] = useState(true);
+  const isDark = useSettingsStore((s) => s.isDark);
   const { nodes, edges } = useGraphStore();
   const { colorMap, labelShapes, edgeConfig } = useMapping();
   const {
@@ -185,6 +227,16 @@ export function GraphCanvas() {
   useEffect(() => {
     if (!svgRef.current) return;
 
+    // Theme-aware colors for D3 elements
+    const th = {
+      bg:          isDark ? '#030712' : '#f1f5f9',
+      arrow:       isDark ? '#4b5563' : '#94a3b8',
+      edgeDefault: isDark ? '#4b5563' : '#94a3b8',
+      edgeLabel:   isDark ? '#6b7280' : '#475569',
+      nodeStroke:  isDark ? '#1e293b' : '#cbd5e1',
+      nodeLabel:   isDark ? '#e2e8f0' : '#1e293b',
+    };
+
     const svg = d3.select(svgRef.current);
     const width  = svgRef.current.clientWidth  || 800;
     const height = svgRef.current.clientHeight || 600;
@@ -196,7 +248,7 @@ export function GraphCanvas() {
       .attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
       .attr('refX', 10).attr('refY', 0)
       .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', '#4b5563');
+      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', th.arrow);
 
     const visibleNodes = nodes.filter((n) => !hiddenNodeIds.has(n.id));
     if (visibleNodes.length === 0) return;
@@ -227,10 +279,29 @@ export function GraphCanvas() {
     });
     simNodesRef.current = simNodes;
 
+    // Compute degree (connection count) for each node
+    const degreeMap = new Map<string, number>();
+    for (const e of edges) {
+      degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
+      degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
+    }
+    const degrees = [...degreeMap.values()];
+    const minDeg = Math.min(...degrees, 1);
+    const maxDeg = Math.max(...degrees, 1);
+
+    // Scale degree to node size using sqrt scale (handles power-law distributions)
+    const MIN_SIZE = 36, MAX_SIZE = 70;
+    const sizeForDegree = (deg: number) => {
+      if (maxDeg === minDeg) return (MIN_SIZE + MAX_SIZE) / 2;
+      const t = Math.sqrt((deg - minDeg) / (maxDeg - minDeg));
+      return MIN_SIZE + t * (MAX_SIZE - MIN_SIZE);
+    };
+
     // Pre-compute visual config for every node once
     const nodeConfigs = new Map<string, VisualConfig>();
     for (const node of simNodes) {
-      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap, labelShapes));
+      const deg = degreeMap.get(node.id) ?? 0;
+      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap, labelShapes, sizeForDegree(deg)));
     }
     nodeConfigsRef.current = nodeConfigs;
 
@@ -267,12 +338,12 @@ export function GraphCanvas() {
     const nodeGroup = g.append('g').attr('class', 'nodes');
 
     const linkEl = linkGroup.selectAll<SVGLineElement, SimEdge>('line').data(simEdges).join('line')
-      .attr('stroke', (d) => edgeConfig[d.type]?.color ?? '#4b5563')
+      .attr('stroke', (d) => edgeConfig[d.type]?.color ?? th.edgeDefault)
       .attr('stroke-width', (d) => edgeConfig[d.type]?.width ?? 1.5)
       .attr('marker-end', 'url(#arrow)');
 
     const edgeLabelEl = linkGroup.selectAll<SVGTextElement, SimEdge>('text').data(simEdges).join('text')
-      .attr('text-anchor', 'middle').attr('fill', '#6b7280').attr('font-size', '9px')
+      .attr('text-anchor', 'middle').attr('fill', th.edgeLabel).attr('font-size', '9px')
       .attr('pointer-events', 'none').text((d) => d.type);
 
     applyEdgeLabelsRef.current = (hidden: Set<string>) => {
@@ -316,11 +387,12 @@ export function GraphCanvas() {
         config,
         d.id === curSelectedId,
         pinnedNodeIds.has(d.id),
+        th.nodeStroke,
       );
     });
 
     nodeEl.append('text')
-      .attr('text-anchor', 'middle').attr('fill', '#e2e8f0').attr('font-size', '11px')
+      .attr('text-anchor', 'middle').attr('fill', th.nodeLabel).attr('font-size', '11px')
       .attr('dy', (d) => (nodeConfigs.get(d.id)?.size ?? 36) / 2 + 13)
       .attr('pointer-events', 'none')
       .text((d) => (d.properties['name'] as string) ?? d.primaryLabel);
@@ -331,7 +403,7 @@ export function GraphCanvas() {
       nodeEl.each(function (d) {
         const sel = d.id === id;
         d3.select(this).select('.node-shape')
-          .attr('stroke', sel ? '#f59e0b' : '#1e293b')
+          .attr('stroke', sel ? '#f59e0b' : th.nodeStroke)
           .attr('stroke-width', sel ? 3 : 1.5);
       });
     };
@@ -395,7 +467,7 @@ export function GraphCanvas() {
       applyOpacityRef.current    = () => {};
       applyEdgeLabelsRef.current = () => {};
     };
-  }, [nodes, edges, colorMap, labelShapes, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, setSelectedNode, setContextMenu]);
+  }, [nodes, edges, colorMap, labelShapes, edgeConfig, pinnedNodeIds, hiddenNodeIds, layoutAlgorithm, isDark, setSelectedNode, setContextMenu]);
 
   // ── Effect 2: selection ────────────────────────────────────────────────────
   useEffect(() => { applySelectionRef.current(selectedNodeId); }, [selectedNodeId]);
@@ -423,6 +495,11 @@ export function GraphCanvas() {
       }
     }
   }, [highlightedLabel, searchQuery]);
+
+  // ── Effect: redraw minimap immediately when toggled on ────────────────────
+  useEffect(() => {
+    if (minimapVisible) drawMinimap();
+  }, [minimapVisible]);
 
   // ── Effect 4: edge label visibility ───────────────────────────────────────
   useEffect(() => {
@@ -513,9 +590,93 @@ export function GraphCanvas() {
         canvas.width = outW * scale; canvas.height = outH * scale;
         const ctx = canvas.getContext('2d')!;
         ctx.scale(scale, scale);
-        ctx.fillStyle = '#030712';
+        ctx.fillStyle = useSettingsStore.getState().isDark ? '#030712' : '#f1f5f9';
         ctx.fillRect(0, 0, outW, outH);
         ctx.drawImage(img, 0, 0, outW, outH);
+
+        // ── Legend ──────────────────────────────────────────────────────────
+        const { colorMap, labelShapes } = useMapping.getState();
+        const { nodes: allNodes } = useGraphStore.getState();
+
+        // Collect unique domains and labels present in the current graph
+        const domainsSeen = new Set<string>();
+        const labelsSeen  = new Set<string>();
+        for (const node of allNodes) {
+          const domain = String(node.properties[COLOR_PROPERTY] ?? '');
+          if (domain) domainsSeen.add(domain);
+          labelsSeen.add(node.primaryLabel);
+        }
+        const domainEntries = [...domainsSeen].map((d) => ({ name: d, color: colorMap[d] ?? '#94a3b8' }));
+        const labelEntries  = [...labelsSeen].map((l) => ({ name: l, shape: (labelShapes[l] ?? 'circle') as ShapeType }));
+
+        if (domainEntries.length === 0 && labelEntries.length === 0) {
+          URL.revokeObjectURL(url);
+          const a = document.createElement('a');
+          a.href = canvas.toDataURL('image/png'); a.download = 'graph.png'; a.click();
+          return;
+        }
+
+        const font     = 'ui-sans-serif, system-ui, Arial, sans-serif';
+        const pad      = 14;
+        const lineH    = 22;
+        const iconR    = 7;
+        const titleH   = 20;
+        const secGap   = 8;
+        const margin   = 24;
+
+        const hasDomains = domainEntries.length > 0;
+        const hasLabels  = labelEntries.length > 0;
+        const panelH =
+          pad +
+          (hasDomains ? titleH + domainEntries.length * lineH + (hasLabels ? secGap : 0) : 0) +
+          (hasLabels  ? titleH + labelEntries.length * lineH : 0) +
+          pad;
+        const panelW = 210;
+        const lx = outW - panelW - margin;
+        const ly = outH - panelH - margin;
+
+        // Panel background
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+        ctx.strokeStyle = '#374151';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(lx, ly, panelW, panelH, 6);
+        ctx.fill();
+        ctx.stroke();
+
+        let y = ly + pad;
+
+        if (hasDomains) {
+          ctx.fillStyle = '#9ca3af';
+          ctx.font = `bold 11px ${font}`;
+          ctx.fillText('DOMAIN', lx + pad, y + 12);
+          y += titleH;
+          for (const { name, color } of domainEntries) {
+            // Swatch circle
+            drawCanvasShape(ctx, lx + pad + iconR, y + iconR, iconR, 'circle', color);
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = `11px ${font}`;
+            ctx.fillText(name, lx + pad + iconR * 2 + 8, y + iconR + 4);
+            y += lineH;
+          }
+          if (hasLabels) y += secGap;
+        }
+
+        if (hasLabels) {
+          ctx.fillStyle = '#9ca3af';
+          ctx.font = `bold 11px ${font}`;
+          ctx.fillText('LABEL', lx + pad, y + 12);
+          y += titleH;
+          for (const { name, shape } of labelEntries) {
+            drawCanvasShape(ctx, lx + pad + iconR, y + iconR, iconR, shape, '#6b7280');
+            ctx.fillStyle = '#e2e8f0';
+            ctx.font = `11px ${font}`;
+            ctx.fillText(name, lx + pad + iconR * 2 + 8, y + iconR + 4);
+            y += lineH;
+          }
+        }
+        // ────────────────────────────────────────────────────────────────────
+
         URL.revokeObjectURL(url);
         const a = document.createElement('a');
         a.href = canvas.toDataURL('image/png'); a.download = 'graph.png'; a.click();
@@ -532,14 +693,25 @@ export function GraphCanvas() {
 
   return (
     <div className="w-full h-full relative">
-      <svg ref={svgRef} className="w-full h-full bg-gray-950" style={{ display: 'block' }} />
-      <canvas
-        ref={minimapRef}
-        width={300}
-        height={180}
-        className="absolute top-3 right-3 rounded border border-gray-700 opacity-80 hover:opacity-100 transition-opacity"
-        style={{ background: '#0f172a' }}
-      />
+      <svg ref={svgRef} className="w-full h-full bg-slate-100 dark:bg-gray-950" style={{ display: 'block' }} />
+      <div className="absolute top-3 right-3 flex flex-col items-end gap-1">
+        {minimapVisible && (
+          <canvas
+            ref={minimapRef}
+            width={300}
+            height={180}
+            className="rounded border border-gray-700 opacity-80 hover:opacity-100 transition-opacity"
+            style={{ background: '#0f172a' }}
+          />
+        )}
+        <button
+          onClick={() => setMinimapVisible((v) => !v)}
+          className="px-2 py-0.5 bg-gray-800 hover:bg-gray-700 text-gray-400 text-xs rounded border border-gray-700 transition-colors"
+          title={minimapVisible ? 'Hide minimap' : 'Show minimap'}
+        >
+          {minimapVisible ? '⊟ Map' : '⊞ Map'}
+        </button>
+      </div>
     </div>
   );
 }

@@ -14,17 +14,24 @@ export class Neo4jError extends Error {
 
 export class Neo4jClient {
   private readonly driver: Driver;
+  private readonly database: string;
 
-  constructor() {
+  constructor(
+    url     = config.neo4j.url,
+    username = config.neo4j.username,
+    password = config.neo4j.password,
+    database = config.neo4j.database,
+  ) {
+    this.database = database;
     this.driver = neo4j.driver(
-      config.neo4j.url,
-      neo4j.auth.basic(config.neo4j.username, config.neo4j.password),
+      url,
+      neo4j.auth.basic(username, password),
       { connectionTimeout: config.requestTimeoutMs },
     );
   }
 
   async run(cypher: string, params: Record<string, unknown> = {}): Promise<QueryResult> {
-    const session = this.driver.session({ database: config.neo4j.database });
+    const session = this.driver.session({ database: this.database });
     try {
       return await session.run(cypher, params);
     } catch (err: unknown) {
@@ -58,4 +65,30 @@ export class Neo4jClient {
   }
 }
 
+// Default client from env vars
 export const neo4jClient = new Neo4jClient();
+
+// Cache drivers keyed by connection params so we don't reconnect on every request
+const clientCache = new Map<string, Neo4jClient>();
+
+export function getClientForCredentials(
+  url: string,
+  username: string,
+  password: string,
+  database: string,
+): Neo4jClient {
+  // If credentials match defaults exactly (including password), reuse the singleton
+  if (
+    url === config.neo4j.url &&
+    username === config.neo4j.username &&
+    password === config.neo4j.password &&
+    database === config.neo4j.database
+  ) {
+    return neo4jClient;
+  }
+  const key = `${url}::${username}::${password}::${database}`;
+  if (!clientCache.has(key)) {
+    clientCache.set(key, new Neo4jClient(url, username, password, database));
+  }
+  return clientCache.get(key)!;
+}

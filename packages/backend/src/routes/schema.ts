@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { neo4jClient } from '../services/neo4jClient.js';
+import type { Neo4jClient } from '../services/neo4jClient.js';
 import type { SchemaResponse } from '../types.js';
 
 export const schemaRouter = Router();
@@ -13,11 +13,12 @@ schemaRouter.get('/', async (_req, res, next) => {
       return;
     }
 
+    const client = res.locals['neo4jClient'] as Neo4jClient;
     const [labelsResult, relTypesResult, nodePropResult, relPropResult] = await Promise.all([
-      neo4jClient.run('CALL db.labels() YIELD label RETURN label'),
-      neo4jClient.run('CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType'),
-      neo4jClient.run('MATCH (n) UNWIND labels(n) AS lbl UNWIND keys(n) AS key RETURN DISTINCT lbl, key'),
-      neo4jClient.run('MATCH ()-[r]-() UNWIND keys(r) AS key RETURN DISTINCT type(r) AS t, key'),
+      client.run('CALL db.labels() YIELD label RETURN label'),
+      client.run('CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType'),
+      client.run('MATCH (n) UNWIND labels(n) AS lbl UNWIND keys(n) AS key RETURN DISTINCT lbl, key'),
+      client.run('MATCH ()-[r]-() UNWIND keys(r) AS key RETURN DISTINCT type(r) AS t, key'),
     ]);
 
     const nodeLabels = labelsResult.records.map((r) => r.get('label') as string);

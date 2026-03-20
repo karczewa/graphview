@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useSettingsStore } from './settingsStore.ts';
 
 const MAX_HISTORY = 20;
+
+function connectionKey(): string {
+  const { url, username, database } = useSettingsStore.getState();
+  return `${url || '_'}::${username || '_'}::${database || '_'}`;
+}
 
 export type LayoutAlgorithm = 'force' | 'circular' | 'grid' | 'radial';
 
@@ -17,6 +23,12 @@ interface ContextMenuState {
   y: number;
 }
 
+export interface SavedQuery {
+  id: string;
+  name: string;
+  query: string;
+}
+
 interface UiState {
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
@@ -24,8 +36,10 @@ interface UiState {
   searchQuery: string;
   leftPanelOpen: boolean;
   rightPanelOpen: boolean;
-  queryHistory: string[];
+  historyByConnection: Record<string, string[]>;
+  savedQueries: SavedQuery[];
   contextMenu: ContextMenuState | null;
+  mindmapNodeId: string | null;
   pinnedNodeIds: Set<string>;
   hiddenNodeIds: Set<string>;
   hiddenEdgeTypes: Set<string>;
@@ -39,7 +53,10 @@ interface UiState {
   toggleLeftPanel: () => void;
   toggleRightPanel: () => void;
   addToHistory: (query: string) => void;
+  saveQuery: (name: string, query: string) => void;
+  deleteSavedQuery: (id: string) => void;
   setContextMenu: (menu: ContextMenuState | null) => void;
+  setMindmapNode: (id: string | null) => void;
   togglePin: (nodeId: string) => void;
   hideNode: (nodeId: string) => void;
   showAllNodes: () => void;
@@ -56,8 +73,10 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   searchQuery: '',
   leftPanelOpen: true,
   rightPanelOpen: true,
-  queryHistory: [],
+  historyByConnection: {} as Record<string, string[]>,
+  savedQueries: [],
   contextMenu: null,
+  mindmapNodeId: null,
   pinnedNodeIds: new Set(),
   hiddenNodeIds: new Set(),
   hiddenEdgeTypes: new Set(),
@@ -72,11 +91,28 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   addToHistory: (query) =>
+    set((s) => {
+      const key = connectionKey();
+      const prev = s.historyByConnection[key] ?? [];
+      return {
+        historyByConnection: {
+          ...s.historyByConnection,
+          [key]: [query, ...prev.filter((q) => q !== query)].slice(0, MAX_HISTORY),
+        },
+      };
+    }),
+
+
+  saveQuery: (name, query) =>
     set((s) => ({
-      queryHistory: [query, ...s.queryHistory.filter((q) => q !== query)].slice(0, MAX_HISTORY),
+      savedQueries: [...s.savedQueries, { id: `${Date.now()}`, name, query }],
     })),
 
+  deleteSavedQuery: (id) =>
+    set((s) => ({ savedQueries: s.savedQueries.filter((q) => q.id !== id) })),
+
   setContextMenu: (menu) => set({ contextMenu: menu }),
+  setMindmapNode: (id) => set({ mindmapNodeId: id }),
 
   togglePin: (nodeId) =>
     set((s) => {
@@ -118,9 +154,16 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   setLayoutAlgorithm: (layoutAlgorithm) => set({ layoutAlgorithm }),
 }), {
   name: 'graphview-ui',
-  partialize: (s) => ({ hiddenEdgeTypes: [...s.hiddenEdgeTypes] }),
+  partialize: (s) => ({
+    hiddenEdgeTypes: [...s.hiddenEdgeTypes],
+    savedQueries: s.savedQueries,
+  }),
   merge: (persisted: unknown, current) => {
-    const p = persisted as { hiddenEdgeTypes?: string[] };
-    return { ...current, hiddenEdgeTypes: new Set(p.hiddenEdgeTypes ?? []) };
+    const p = persisted as { hiddenEdgeTypes?: string[]; savedQueries?: SavedQuery[] };
+    return {
+      ...current,
+      hiddenEdgeTypes: new Set(p.hiddenEdgeTypes ?? []),
+      savedQueries: p.savedQueries ?? [],
+    };
   },
 }));

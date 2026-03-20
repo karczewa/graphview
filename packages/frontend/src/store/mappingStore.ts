@@ -110,9 +110,10 @@ export function resolveNodeConfig(
   node: GraphNode,
   colorMap: Record<string, string>,
   labelShapes: Record<string, ShapeType>,
+  sizeOverride?: number,
 ): VisualConfig {
   const shape = labelShapes[node.primaryLabel] ?? 'circle';
   const domain = String(node.properties[COLOR_PROPERTY] ?? '');
   const color = domain ? (colorMap[domain] ?? DEFAULT_COLOR) : DEFAULT_COLOR;
-  return { color, shape, size: NODE_SIZE };
+  return { color, shape, size: sizeOverride ?? NODE_SIZE };
 }
