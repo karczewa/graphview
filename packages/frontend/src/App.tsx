@@ -42,7 +42,7 @@ export default function App() {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-      const { selectedNodeId, setSelectedNode, hideNode, togglePin } = useUiStore.getState();
+      const { selectedNodeId, setSelectedNode, hideNode, togglePin, undoHide, hideHistory, addToast } = useUiStore.getState();
 
       switch (e.key) {
         case 'f': case 'F':
@@ -57,6 +57,15 @@ export default function App() {
           break;
         case 'p': case 'P':
           if (selectedNodeId) togglePin(selectedNodeId);
+          break;
+        case 'z': case 'Z':
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            if (hideHistory.length > 0) {
+              undoHide();
+              addToast('Undo — node visibility restored', 'info');
+            }
+          }
           break;
       }
     };
