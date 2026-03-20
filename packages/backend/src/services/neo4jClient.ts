@@ -77,15 +77,16 @@ export function getClientForCredentials(
   password: string,
   database: string,
 ): Neo4jClient {
-  // If credentials match defaults, reuse the singleton
+  // If credentials match defaults exactly (including password), reuse the singleton
   if (
     url === config.neo4j.url &&
     username === config.neo4j.username &&
+    password === config.neo4j.password &&
     database === config.neo4j.database
   ) {
     return neo4jClient;
   }
-  const key = `${url}::${username}::${database}`;
+  const key = `${url}::${username}::${password}::${database}`;
   if (!clientCache.has(key)) {
     clientCache.set(key, new Neo4jClient(url, username, password, database));
   }
