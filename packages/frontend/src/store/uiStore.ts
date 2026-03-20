@@ -9,7 +9,7 @@ function connectionKey(): string {
   return `${url || '_'}::${username || '_'}::${database || '_'}`;
 }
 
-export type LayoutAlgorithm = 'force' | 'circular' | 'grid' | 'radial' | 'mindmap';
+export type LayoutAlgorithm = 'force' | 'circular' | 'grid' | 'radial';
 
 export interface Toast {
   id: string;
@@ -39,6 +39,7 @@ interface UiState {
   historyByConnection: Record<string, string[]>;
   savedQueries: SavedQuery[];
   contextMenu: ContextMenuState | null;
+  mindmapNodeId: string | null;
   pinnedNodeIds: Set<string>;
   hiddenNodeIds: Set<string>;
   hiddenEdgeTypes: Set<string>;
@@ -55,6 +56,7 @@ interface UiState {
   saveQuery: (name: string, query: string) => void;
   deleteSavedQuery: (id: string) => void;
   setContextMenu: (menu: ContextMenuState | null) => void;
+  setMindmapNode: (id: string | null) => void;
   togglePin: (nodeId: string) => void;
   hideNode: (nodeId: string) => void;
   showAllNodes: () => void;
@@ -74,6 +76,7 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   historyByConnection: {} as Record<string, string[]>,
   savedQueries: [],
   contextMenu: null,
+  mindmapNodeId: null,
   pinnedNodeIds: new Set(),
   hiddenNodeIds: new Set(),
   hiddenEdgeTypes: new Set(),
@@ -109,6 +112,7 @@ export const useUiStore = create<UiState>()(persist((set) => ({
     set((s) => ({ savedQueries: s.savedQueries.filter((q) => q.id !== id) })),
 
   setContextMenu: (menu) => set({ contextMenu: menu }),
+  setMindmapNode: (id) => set({ mindmapNodeId: id }),
 
   togglePin: (nodeId) =>
     set((s) => {
