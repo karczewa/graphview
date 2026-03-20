@@ -15,7 +15,8 @@ const CIRCLE_PATH = (r: number) =>
 export function MindmapModal() {
   const { mindmapNodeId, setMindmapNode } = useUiStore();
   const { colorMap, labelShapes } = useMapping();
-  const svgRef = useRef<SVGSVGElement>(null);
+  const svgRef    = useRef<SVGSVGElement>(null);
+  const centerRef = useRef<{ cx: number; cy: number }>({ cx: 0, cy: 0 });
   const [depth, setDepth] = useState(2);
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [error, setError] = useState('');
@@ -95,6 +96,7 @@ export function MindmapModal() {
       const W = svgEl.clientWidth  || 900;
       const H = svgEl.clientHeight || 700;
       const cx = W / 2, cy = H / 2;
+      centerRef.current = { cx, cy };
 
       // Scale outer radius so leaves never overlap
       const totalLeaves = countLeaves(mindmapNodeId);
@@ -190,13 +192,16 @@ export function MindmapModal() {
     const svgEl = svgRef.current;
     if (!svgEl) return;
 
-    // Get the true bounding box of all rendered content (in g's local coords)
+    // getBBox() returns coords in the inner g's local space (centred at 0,0).
+    // The inner g has translate(cx,cy), so we offset by cx/cy to get SVG coords.
     const contentG = svgEl.querySelector('g > g') as SVGGElement | null;
     if (!contentG) return;
 
+    const { cx, cy } = centerRef.current;
     const bbox  = contentG.getBBox();
     const pad   = 80;
-    const vx    = bbox.x - pad, vy = bbox.y - pad;
+    const vx    = cx + bbox.x - pad;
+    const vy    = cy + bbox.y - pad;
     const vw    = bbox.width  + 2 * pad;
     const vh    = bbox.height + 2 * pad;
 
@@ -214,8 +219,10 @@ export function MindmapModal() {
 
     // Background and font
     const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bg.setAttribute('x', String(vx)); bg.setAttribute('y', String(vy));
-    bg.setAttribute('width', String(vw)); bg.setAttribute('height', String(vh));
+    bg.setAttribute('x',      String(vx));
+    bg.setAttribute('y',      String(vy));
+    bg.setAttribute('width',  String(vw));
+    bg.setAttribute('height', String(vh));
     bg.setAttribute('fill', '#030712');
     svgClone.insertBefore(bg, svgClone.firstChild);
 
