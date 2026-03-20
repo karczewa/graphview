@@ -227,10 +227,29 @@ export function GraphCanvas() {
     });
     simNodesRef.current = simNodes;
 
+    // Compute degree (connection count) for each node
+    const degreeMap = new Map<string, number>();
+    for (const e of edges) {
+      degreeMap.set(e.source, (degreeMap.get(e.source) ?? 0) + 1);
+      degreeMap.set(e.target, (degreeMap.get(e.target) ?? 0) + 1);
+    }
+    const degrees = [...degreeMap.values()];
+    const minDeg = Math.min(...degrees, 1);
+    const maxDeg = Math.max(...degrees, 1);
+
+    // Scale degree to node size using sqrt scale (handles power-law distributions)
+    const MIN_SIZE = 36, MAX_SIZE = 70;
+    const sizeForDegree = (deg: number) => {
+      if (maxDeg === minDeg) return (MIN_SIZE + MAX_SIZE) / 2;
+      const t = Math.sqrt((deg - minDeg) / (maxDeg - minDeg));
+      return MIN_SIZE + t * (MAX_SIZE - MIN_SIZE);
+    };
+
     // Pre-compute visual config for every node once
     const nodeConfigs = new Map<string, VisualConfig>();
     for (const node of simNodes) {
-      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap, labelShapes));
+      const deg = degreeMap.get(node.id) ?? 0;
+      nodeConfigs.set(node.id, resolveNodeConfig(node, colorMap, labelShapes, sizeForDegree(deg)));
     }
     nodeConfigsRef.current = nodeConfigs;
 
