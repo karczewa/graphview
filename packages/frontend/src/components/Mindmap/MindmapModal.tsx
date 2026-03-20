@@ -157,13 +157,23 @@ export function MindmapModal() {
           const x1 = sx + ux * nodeR(s), y1 = sy + uy * nodeR(s);
           const x2 = tx - ux * nodeR(t), y2 = ty - uy * nodeR(t);
 
-          // Control points: each pulls toward the centre (0,0) to create
-          // a gentle outward curve rather than a straight spoke
-          const pull = 0.45;
-          const cx1 = x1 + (0 - x1) * pull + ux * len * 0.35;
-          const cy1 = y1 + (0 - y1) * pull + uy * len * 0.35;
-          const cx2 = x2 + (0 - x2) * pull - ux * len * 0.35;
-          const cy2 = y2 + (0 - y2) * pull - uy * len * 0.35;
+          // For root→depth-1: pull control points toward centre so edges
+          // arc outward from the node perimeter in a fan shape.
+          // For deeper edges: simple forward bezier that follows the line.
+          let bx1: number, by1: number, bx2: number, by2: number;
+          if (s.depth === 0) {
+            const pull = 0.4;
+            bx1 = x1 + (0 - x1) * pull + ux * len * 0.35;
+            by1 = y1 + (0 - y1) * pull + uy * len * 0.35;
+            bx2 = x2 + (0 - x2) * pull - ux * len * 0.35;
+            by2 = y2 + (0 - y2) * pull - uy * len * 0.35;
+          } else {
+            bx1 = x1 + ux * len * 0.33;
+            by1 = y1 + uy * len * 0.33;
+            bx2 = x2 - ux * len * 0.33;
+            by2 = y2 - uy * len * 0.33;
+          }
+          const cx1 = bx1, cy1 = by1, cx2 = bx2, cy2 = by2;
 
           return `M${x1},${y1} C${cx1},${cy1} ${cx2},${cy2} ${x2},${y2}`;
         });
