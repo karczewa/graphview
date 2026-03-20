@@ -3,7 +3,7 @@ import { useUiStore } from '../../store/uiStore.ts';
 import { useGraphStore } from '../../store/graphStore.ts';
 
 export function ContextMenu() {
-  const { contextMenu, setContextMenu, togglePin, hideNode, pinnedNodeIds } = useUiStore();
+  const { contextMenu, setContextMenu, togglePin, hideNode, pinnedNodeIds, setMindmapNode } = useUiStore();
   const { expandNode } = useGraphStore();
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -56,6 +56,10 @@ export function ContextMenu() {
       {item('Expand 1 hop',  () => expandNode(nodeId, 1))}
       {item('Expand 2 hops', () => expandNode(nodeId, 2))}
       {item('Expand 3 hops', () => expandNode(nodeId, 3))}
+
+      <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+
+      {item('🗺 View as Mindmap', () => setMindmapNode(nodeId))}
 
       <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
 

@@ -7,6 +7,7 @@ import { StatusBar } from './StatusBar.tsx';
 import { Toolbar } from '../Toolbar/Toolbar.tsx';
 import { ContextMenu } from '../ContextMenu/ContextMenu.tsx';
 import { ToastContainer } from '../ui/Toast.tsx';
+import { MindmapModal } from '../Mindmap/MindmapModal.tsx';
 
 export function AppLayout() {
   const { leftPanelOpen, rightPanelOpen } = useUiStore();
@@ -29,6 +30,7 @@ export function AppLayout() {
         {rightPanelOpen && <div className="w-80 flex-shrink-0 overflow-hidden"><RightPanel /></div>}
       </div>
       <ContextMenu />
+      <MindmapModal />
       <ToastContainer />
     </div>
   );
