@@ -271,6 +271,10 @@ export function MindmapModal() {
     const blob = new Blob([new XMLSerializer().serializeToString(svgClone)], { type: 'image/svg+xml' });
     const url  = URL.createObjectURL(blob);
     const img  = new Image();
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      useUiStore.getState().addToast('Failed to export mindmap as PNG', 'error');
+    };
     img.onload = () => {
       const canvas = document.createElement('canvas');
       canvas.width  = outW * scale;

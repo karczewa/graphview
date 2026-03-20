@@ -12,7 +12,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       if (attempt < maxRetries - 1) {
-        await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
+        await new Promise((r) => setTimeout(r, Math.min(Math.pow(2, attempt) * 1000, 10_000)));
       }
     }
   }

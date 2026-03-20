@@ -6,7 +6,8 @@ export const connectionRouter = Router();
 // POST /api/connection/test — validate the credentials supplied via headers
 connectionRouter.post('/test', async (req, res, next) => {
   try {
-    const client = res.locals['neo4jClient'] as Neo4jClient;
+    const client = res.locals['neo4jClient'] as Neo4jClient | undefined;
+    if (!client) { res.status(500).json({ ok: false, error: 'Neo4j client not initialised' }); return; }
     const ok = await client.ping();
     if (ok) {
       res.json({ ok: true });

@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import { rateLimit } from 'express-rate-limit';
 import { config } from './config.js';
 import { healthRouter } from './routes/health.js';
 import { queryRouter } from './routes/query.js';
@@ -17,8 +18,19 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Attach the right Neo4j client to every request based on optional headers
+// Attach the right Neo4j client to every request based on optional headers/body
 app.use('/api', connectionFromHeaders);
+
+// Rate limiting — 120 requests per minute per IP on query-heavy endpoints
+const queryLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please slow down', code: 'RATE_LIMITED' },
+});
+app.use('/api/query', queryLimiter);
+app.use('/api/graph', queryLimiter);
 
 app.use('/api/health', healthRouter);
 app.use('/api/query', queryRouter);

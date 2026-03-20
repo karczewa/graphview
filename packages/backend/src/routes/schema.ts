@@ -6,6 +6,12 @@ export const schemaRouter = Router();
 
 let cache: { data: SchemaResponse; expiresAt: number } | null = null;
 
+// POST /api/schema/invalidate — flush the schema cache
+schemaRouter.post('/invalidate', (_req, res) => {
+  cache = null;
+  res.json({ ok: true });
+});
+
 schemaRouter.get('/', async (_req, res, next) => {
   try {
     if (cache && Date.now() < cache.expiresAt) {
@@ -13,7 +19,8 @@ schemaRouter.get('/', async (_req, res, next) => {
       return;
     }
 
-    const client = res.locals['neo4jClient'] as Neo4jClient;
+    const client = res.locals['neo4jClient'] as Neo4jClient | undefined;
+    if (!client) { res.status(500).json({ error: 'Neo4j client not initialised', code: 'INTERNAL_ERROR' }); return; }
     const [labelsResult, relTypesResult, nodePropResult, relPropResult] = await Promise.all([
       client.run('CALL db.labels() YIELD label RETURN label'),
       client.run('CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType'),

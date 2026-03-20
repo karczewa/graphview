@@ -156,13 +156,15 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   name: 'graphview-ui',
   partialize: (s) => ({
     hiddenEdgeTypes: [...s.hiddenEdgeTypes],
+    pinnedNodeIds: [...s.pinnedNodeIds],
     savedQueries: s.savedQueries,
   }),
   merge: (persisted: unknown, current) => {
-    const p = persisted as { hiddenEdgeTypes?: string[]; savedQueries?: SavedQuery[] };
+    const p = persisted as { hiddenEdgeTypes?: string[]; pinnedNodeIds?: string[]; savedQueries?: SavedQuery[] };
     return {
       ...current,
       hiddenEdgeTypes: new Set(p.hiddenEdgeTypes ?? []),
+      pinnedNodeIds: new Set(p.pinnedNodeIds ?? []),
       savedQueries: p.savedQueries ?? [],
     };
   },
