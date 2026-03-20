@@ -213,10 +213,14 @@ export function GraphCanvas() {
     const simNodes: SimNode[] = visibleNodes.map((n) => {
       const saved  = positionsRef.current.get(n.id);
       const pinned = pinnedNodeIds.has(n.id);
+      // Spread new nodes randomly around the canvas center instead of
+      // all spawning at (0,0) — prevents explosive initial repulsion
+      const angle  = Math.random() * 2 * Math.PI;
+      const radius = 80 + Math.random() * 200;
       return {
         ...n,
-        x:  saved?.x,
-        y:  saved?.y,
+        x:  saved?.x ?? (cx + Math.cos(angle) * radius),
+        y:  saved?.y ?? (cy + Math.sin(angle) * radius),
         fx: pinned && saved ? saved.x : undefined,
         fy: pinned && saved ? saved.y : undefined,
       };
@@ -240,17 +244,22 @@ export function GraphCanvas() {
 
     if (layoutAlgorithm !== 'force') applyLayout(simNodes, layoutAlgorithm, cx, cy);
 
+    // alphaDecay scales up with node count so larger graphs settle faster
+    const alphaDecay = Math.min(0.15, Math.max(0.04, n / 1500));
+
     const simulation = d3
       .forceSimulation<SimNode>(simNodes)
       .force('link', d3.forceLink<SimNode, SimEdge>(simEdges).id((d) => d.id)
         .distance(Math.min(200, Math.max(60, 1200 / sqrtN))))
       .force('charge', d3.forceManyBody<SimNode>()
-        .strength(-Math.min(800, Math.max(150, 4000 / sqrtN))))
+        .strength(-Math.min(800, Math.max(150, 4000 / sqrtN)))
+        .theta(0.9))           // higher theta = faster Barnes-Hut approximation
       .force('x', d3.forceX<SimNode>(cx).strength(Math.min(0.08, Math.max(0.01, n / 3000))))
       .force('y', d3.forceY<SimNode>(cy).strength(Math.min(0.08, Math.max(0.01, n / 3000))))
       .force('collision', d3.forceCollide<SimNode>(Math.min(60, Math.max(25, 400 / sqrtN))))
       .velocityDecay(0.65)
-      .alphaDecay(0.04);
+      .alphaDecay(alphaDecay)
+      .alphaMin(0.005);        // stop simulation earlier once sufficiently settled
 
     if (layoutAlgorithm !== 'force') { simulation.stop(); simulation.tick(); }
 
@@ -350,6 +359,22 @@ export function GraphCanvas() {
         .attr('y', (d) => (((d.source as SimNode).y ?? 0) + ((d.target as SimNode).y ?? 0)) / 2);
 
       nodeEl.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
+
+      // Auto-pin nodes whose velocity has dropped to near zero so they no
+      // longer participate in force calculations — dramatically reduces cost
+      // with large graphs. Skip user-dragged nodes (already have fx/fy set).
+      const alpha = simulation.alpha();
+      if (alpha < 0.05) {
+        for (const nd of simNodes) {
+          if (nd.fx == null && nd.fy == null) {
+            const vx = nd.vx ?? 0, vy = nd.vy ?? 0;
+            if (Math.abs(vx) < 0.01 && Math.abs(vy) < 0.01) {
+              nd.fx = nd.x; nd.fy = nd.y;
+            }
+          }
+        }
+      }
+
       drawMinimap();
     };
 
@@ -359,8 +384,11 @@ export function GraphCanvas() {
     return () => {
       simulation.stop();
       for (const nd of simNodes) {
-        if (nd.x !== undefined && nd.y !== undefined)
+        if (nd.x !== undefined && nd.y !== undefined) {
           positionsRef.current.set(nd.id, { x: nd.x, y: nd.y });
+          // Clear auto-pins so only user-pinned nodes stay fixed on rebuild
+          if (!pinnedNodeIds.has(nd.id)) { nd.fx = undefined; nd.fy = undefined; }
+        }
       }
       svg.on('click', null);
       applySelectionRef.current  = () => {};
