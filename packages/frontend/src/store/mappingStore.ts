@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { ShapeType } from '../components/shapes/index.ts';
 import type { GraphNode } from '../types.ts';
 
@@ -51,7 +52,7 @@ interface MappingState {
   setLabelShape: (label: string, shape: ShapeType) => void;
 }
 
-export const useMapping = create<MappingState>((set, get) => ({
+export const useMapping = create<MappingState>()(persist((set, get) => ({
   colorMap: {},
   labelShapes: { ...DEFAULT_LABEL_SHAPES },
   edgeConfig: {},
@@ -102,7 +103,7 @@ export const useMapping = create<MappingState>((set, get) => ({
       }
       return { labelShapes: { ...s.labelShapes, [label]: shape } };
     }),
-}));
+}), { name: 'graphview-mapping', partialize: (s) => ({ labelShapes: s.labelShapes }) }));
 
 // Resolve final VisualConfig for a single node
 export function resolveNodeConfig(
