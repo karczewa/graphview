@@ -10,7 +10,7 @@ interface Props {
 type TestStatus = 'idle' | 'testing' | 'connecting' | 'ok' | 'error';
 
 export function SettingsModal({ onClose }: Props) {
-  const { url, username, password, database, maxNodes, setConnection, setMaxNodes } =
+  const { url, username, password, database, maxNodes, isDark, setConnection, setMaxNodes, toggleTheme } =
     useSettingsStore();
   const fetchGraph = useGraphStore((s) => s.fetchGraph);
 
@@ -185,19 +185,30 @@ export function SettingsModal({ onClose }: Props) {
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
               Graph
             </p>
-            <div>
-              <p className={labelClass}>Max nodes per query</p>
-              <input
-                type="number"
-                min={1}
-                max={5000}
-                value={localMaxNodes}
-                onChange={(e) => setLocalMaxNodes(e.target.value)}
-                className={`${inputClass} w-32`}
-              />
-              <p className="text-xs text-gray-400 dark:text-gray-600 mt-1">
-                Caps how many nodes are returned. Lower values improve performance.
-              </p>
+            <div className="space-y-3">
+              <div>
+                <p className={labelClass}>Max nodes per query</p>
+                <input
+                  type="number"
+                  min={1}
+                  max={5000}
+                  value={localMaxNodes}
+                  onChange={(e) => setLocalMaxNodes(e.target.value)}
+                  className={`${inputClass} w-32`}
+                />
+                <p className="text-xs text-gray-400 dark:text-gray-600 mt-1">
+                  Caps how many nodes are returned. Lower values improve performance.
+                </p>
+              </div>
+              <div className="flex items-center justify-between">
+                <p className={labelClass}>Theme</p>
+                <button
+                  onClick={toggleTheme}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-sm rounded transition-colors"
+                >
+                  {isDark ? '☀ Switch to Light' : '☾ Switch to Dark'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
