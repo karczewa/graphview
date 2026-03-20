@@ -4,6 +4,7 @@ import { useUiStore } from '../../store/uiStore.ts';
 import { canvasActions } from '../../lib/canvasActions.ts';
 import type { LayoutAlgorithm } from '../../store/uiStore.ts';
 import { SettingsModal } from '../Settings/SettingsModal.tsx';
+import { useSettingsStore } from '../../store/settingsStore.ts';
 
 const LAYOUTS: { value: LayoutAlgorithm; label: string }[] = [
   { value: 'force',    label: 'Force' },
@@ -22,8 +23,11 @@ export function Toolbar() {
   const [saveName, setSaveName] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { runQuery, loading } = useGraphStore();
-  const { queryHistory, addToHistory, layoutAlgorithm, setLayoutAlgorithm,
+  const { historyByConnection, addToHistory, layoutAlgorithm, setLayoutAlgorithm,
           savedQueries, saveQuery, deleteSavedQuery } = useUiStore();
+  const { url, username, database } = useSettingsStore();
+  const connectionKey = `${url || '_'}::${username || '_'}::${database || '_'}`;
+  const queryHistory = historyByConnection[connectionKey] ?? [];
   const historyRef = useRef<HTMLDivElement>(null);
   const savedRef   = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

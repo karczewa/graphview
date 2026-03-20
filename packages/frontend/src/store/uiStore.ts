@@ -1,7 +1,13 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { useSettingsStore } from './settingsStore.ts';
 
 const MAX_HISTORY = 20;
+
+function connectionKey(): string {
+  const { url, username, database } = useSettingsStore.getState();
+  return `${url || '_'}::${username || '_'}::${database || '_'}`;
+}
 
 export type LayoutAlgorithm = 'force' | 'circular' | 'grid' | 'radial';
 
@@ -30,7 +36,7 @@ interface UiState {
   searchQuery: string;
   leftPanelOpen: boolean;
   rightPanelOpen: boolean;
-  queryHistory: string[];
+  historyByConnection: Record<string, string[]>;
   savedQueries: SavedQuery[];
   contextMenu: ContextMenuState | null;
   pinnedNodeIds: Set<string>;
@@ -65,7 +71,7 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   searchQuery: '',
   leftPanelOpen: true,
   rightPanelOpen: true,
-  queryHistory: [],
+  historyByConnection: {} as Record<string, string[]>,
   savedQueries: [],
   contextMenu: null,
   pinnedNodeIds: new Set(),
@@ -82,9 +88,17 @@ export const useUiStore = create<UiState>()(persist((set) => ({
   toggleLeftPanel: () => set((s) => ({ leftPanelOpen: !s.leftPanelOpen })),
   toggleRightPanel: () => set((s) => ({ rightPanelOpen: !s.rightPanelOpen })),
   addToHistory: (query) =>
-    set((s) => ({
-      queryHistory: [query, ...s.queryHistory.filter((q) => q !== query)].slice(0, MAX_HISTORY),
-    })),
+    set((s) => {
+      const key = connectionKey();
+      const prev = s.historyByConnection[key] ?? [];
+      return {
+        historyByConnection: {
+          ...s.historyByConnection,
+          [key]: [query, ...prev.filter((q) => q !== query)].slice(0, MAX_HISTORY),
+        },
+      };
+    }),
+
 
   saveQuery: (name, query) =>
     set((s) => ({
