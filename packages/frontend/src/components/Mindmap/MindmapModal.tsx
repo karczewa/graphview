@@ -8,10 +8,14 @@ import type { GraphNode } from '../../types.ts';
 
 type HNode = { id: string; children?: HNode[] };
 
+const CIRCLE_PATH = (r: number) =>
+  `M 0,${-r} A ${r},${r} 0 1,1 0,${r} A ${r},${r} 0 1,1 0,${-r}`;
+
 export function MindmapModal() {
   const { mindmapNodeId, setMindmapNode } = useUiStore();
   const { colorMap, labelShapes } = useMapping();
-  const svgRef = useRef<SVGSVGElement>(null);
+  const svgRef    = useRef<SVGSVGElement>(null);
+  const centerRef = useRef<{ cx: number; cy: number }>({ cx: 0, cy: 0 });
   const [depth, setDepth] = useState(2);
   const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
   const [error, setError] = useState('');
@@ -40,7 +44,7 @@ export function MindmapModal() {
         }
       }
 
-      // BFS spanning tree from root
+      // BFS spanning tree
       const visited = new Set<string>([mindmapNodeId]);
       const childrenMap = new Map<string, string[]>();
       for (const nd of data.nodes) childrenMap.set(nd.id, []);
@@ -56,23 +60,25 @@ export function MindmapModal() {
         }
       }
 
-      // Sort children at every level by primaryLabel so same-type nodes group together
       const sortByLabel = (ids: string[]) =>
-        [...ids].sort((a, b) => {
-          const la = nodeMap.get(a)?.primaryLabel ?? '';
-          const lb = nodeMap.get(b)?.primaryLabel ?? '';
-          return la.localeCompare(lb);
-        });
+        [...ids].sort((a, b) =>
+          (nodeMap.get(a)?.primaryLabel ?? '').localeCompare(nodeMap.get(b)?.primaryLabel ?? ''),
+        );
 
       const buildHNode = (id: string): HNode => {
         const ch = sortByLabel(childrenMap.get(id) ?? []);
         return ch.length > 0 ? { id, children: ch.map(buildHNode) } : { id };
       };
 
+      const countLeaves = (id: string): number => {
+        const ch = childrenMap.get(id) ?? [];
+        return ch.length === 0 ? 1 : ch.reduce((s, c) => s + countLeaves(c), 0);
+      };
+
       const nodeColor = (id: string) => {
         const nd = nodeMap.get(id);
         const domain = String(nd?.properties[COLOR_PROPERTY] ?? '');
-        return (domain && colorMap[domain]) ? colorMap[domain] : '#6366f1';
+        return domain && colorMap[domain] ? colorMap[domain] : '#6366f1';
       };
 
       const nodeShape = (id: string) =>
@@ -88,128 +94,140 @@ export function MindmapModal() {
       const svgEl = svgRef.current;
       const W = svgEl.clientWidth  || 900;
       const H = svgEl.clientHeight || 700;
-      const cx = W / 2;
-      const cy = H / 2;
-      const pad = 48;
-      const rootGap = 100;
-      const MIN_NODE_SPACING = 32; // px between leaf nodes — governs how tall the tree is
+      const cx = W / 2, cy = H / 2;
+      centerRef.current = { cx, cy };
 
-      // Count leaves in a subtree so we can allocate enough vertical space
-      const countLeaves = (id: string): number => {
-        const ch = childrenMap.get(id) ?? [];
-        if (ch.length === 0) return 1;
-        return ch.reduce((s, c) => s + countLeaves(c), 0);
+      // ── Recursive fan layout ────────────────────────────────────────────────
+      // Each node's children are spread in a fan centred on the direction from
+      // the node's parent, so hop-2 nodes cluster around their hop-1 parent
+      // rather than all sitting on one global outer ring.
+
+      const MIN_GAP = 30; // minimum arc gap between sibling nodes (px)
+
+      type Pos = { x: number; y: number; depth: number };
+      const positions = new Map<string, Pos>();
+      // parent→child pairs for link drawing
+      const links: Array<{ src: string; tgt: string }> = [];
+
+      const place = (
+        id: string,
+        x: number, y: number,
+        angle: number,       // direction this node extends from its parent
+        sector: number,      // angular width available for this node's children
+        depth: number,
+      ) => {
+        positions.set(id, { x, y, depth });
+        const ch = sortByLabel(childrenMap.get(id) ?? []);
+        if (ch.length === 0) return;
+
+        const totalLeaves = ch.reduce((s, c) => s + countLeaves(c), 0);
+
+        // Radius: far enough that siblings have at least MIN_GAP of arc space
+        const levelR = Math.max(130, (MIN_GAP * totalLeaves) / Math.max(0.01, sector));
+
+        let cursor = angle - sector / 2;
+        for (const childId of ch) {
+          const leaves    = countLeaves(childId);
+          const childSector = (leaves / totalLeaves) * sector;
+          const childAngle  = cursor + childSector / 2;
+          cursor += childSector;
+
+          const childX = x + levelR * Math.cos(childAngle);
+          const childY = y + levelR * Math.sin(childAngle);
+          links.push({ src: id, tgt: childId });
+          // Narrow sector slightly so sub-children don't overlap siblings
+          place(childId, childX, childY, childAngle, childSector * 0.82, depth + 1);
+        }
       };
 
-      // Split root's direct children left / right, sorted by label
+      // Root at origin; its children spread over full 360°
+      positions.set(mindmapNodeId, { x: 0, y: 0, depth: 0 });
       const rootCh = sortByLabel(childrenMap.get(mindmapNodeId) ?? []);
-      const half = Math.ceil(rootCh.length / 2);
-      const rightIds = rootCh.slice(0, half);
-      const leftIds  = rootCh.slice(half);
+      const rootLeaves = rootCh.reduce((s, c) => s + countLeaves(c), 0);
+      const rootR = Math.max(160, (MIN_GAP * rootLeaves) / (2 * Math.PI));
+      let rootCursor = -Math.PI;
+      for (const childId of rootCh) {
+        const leaves      = countLeaves(childId);
+        const childSector = (leaves / rootLeaves) * 2 * Math.PI;
+        const childAngle  = rootCursor + childSector / 2;
+        rootCursor += childSector;
+        const childX = rootR * Math.cos(childAngle);
+        const childY = rootR * Math.sin(childAngle);
+        links.push({ src: mindmapNodeId, tgt: childId });
+        place(childId, childX, childY, childAngle, childSector * 0.82, 1);
+      }
 
+      // Visual radius per depth level
+      const visR = (d: number) => d === 0 ? 18 : d === 1 ? 9 : 6;
+
+      // ── SVG setup ──────────────────────────────────────────────────────────
       const svg = d3.select(svgEl);
       svg.selectAll('*').remove();
       const g = svg.append('g');
-
       svg.call(
         d3.zoom<SVGSVGElement, unknown>()
           .scaleExtent([0.05, 4])
           .on('zoom', (event) => g.attr('transform', event.transform)),
       );
-
-      const drawSide = (ids: string[], direction: 1 | -1) => {
-        if (ids.length === 0) return;
-
-        const availW = cx - rootGap - pad;
-
-        // Give each leaf at least MIN_NODE_SPACING px; never less than viewport height
-        const leaves = ids.reduce((s, id) => s + countLeaves(id), 0);
-        const availH = Math.max(H - 2 * pad, leaves * MIN_NODE_SPACING);
-
-        const pointRoot = d3.tree<HNode>()
-          .size([availH, availW])
-          .separation((a, b) => (a.parent === b.parent ? 1 : 1.5))
-          (d3.hierarchy<HNode>({ id: mindmapNodeId, children: ids.map(buildHNode) }));
-
-        const rootX = pointRoot.x;
-        const sy = (nodeX: number) => cy - rootX + nodeX;
-        const sx = (nodeY: number) => cx + direction * (rootGap + nodeY);
-
-        // S-curve bezier links
-        g.selectAll(`path.link-d${direction}`)
-          .data(pointRoot.links())
-          .join('path')
-          .attr('fill', 'none')
-          .attr('stroke', '#4B5563')
-          .attr('stroke-width', 1.5)
-          .attr('opacity', 0.55)
-          .attr('d', (link) => {
-            const s = link.source as d3.HierarchyPointNode<HNode>;
-            const t = link.target as d3.HierarchyPointNode<HNode>;
-            const x1 = sx(s.y), y1 = sy(s.x);
-            const x2 = sx(t.y), y2 = sy(t.x);
-            const mx = (x1 + x2) / 2;
-            return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
-          });
-
-        const nodes = (pointRoot.descendants() as d3.HierarchyPointNode<HNode>[])
-          .filter((d) => d.depth > 0);
-
-        const nodeG = g.selectAll<SVGGElement, d3.HierarchyPointNode<HNode>>(
-          `g.node-d${direction}`,
-        )
-          .data(nodes)
-          .join('g')
-          .attr('transform', (d) => `translate(${sx(d.y)},${sy(d.x)})`);
-
-        const r1 = 9, r2 = 6;
-
-        nodeG.append('path')
-          .attr('d', (d) => {
-            const r = d.depth === 1 ? r1 : r2;
-            const shape = nodeShape(d.data.id);
-            return shape === 'circle'
-              ? `M 0,${-r} A ${r},${r} 0 1,1 0,${r} A ${r},${r} 0 1,1 0,${-r}`
-              : getShapePath(shape, r);
-          })
-          .attr('fill', (d) => nodeColor(d.data.id))
-          .attr('stroke', '#111827')
-          .attr('stroke-width', 1.5);
-
-        nodeG.append('text')
-          .attr('x', (d) => direction * ((d.depth === 1 ? r1 : r2) + 5))
-          .attr('dy', '0.35em')
-          .attr('text-anchor', direction === 1 ? 'start' : 'end')
-          .attr('font-size', (d) => (d.depth === 1 ? 10 : 9))
-          .attr('fill', '#d1d5db')
-          .attr('pointer-events', 'none')
-          .text((d) => nodeLabel(d.data.id));
-      };
-
-      drawSide(rightIds,  1);
-      drawSide(leftIds,  -1);
-
-      // Root node
-      const rootR = 18;
-      const rootShape = nodeShape(mindmapNodeId);
       const rootG = g.append('g').attr('transform', `translate(${cx},${cy})`);
 
-      rootG.append('path')
-        .attr('d', rootShape === 'circle'
-          ? `M 0,${-rootR} A ${rootR},${rootR} 0 1,1 0,${rootR} A ${rootR},${rootR} 0 1,1 0,${-rootR}`
-          : getShapePath(rootShape, rootR))
-        .attr('fill', nodeColor(mindmapNodeId))
-        .attr('stroke', '#111827')
-        .attr('stroke-width', 2.5);
+      // ── Links ──────────────────────────────────────────────────────────────
+      rootG.selectAll('path.link')
+        .data(links)
+        .join('path')
+        .attr('class', 'link')
+        .attr('fill', 'none')
+        .attr('stroke', '#4B5563')
+        .attr('stroke-width', (d) => (positions.get(d.src)!.depth === 0 ? 2 : 1.5))
+        .attr('opacity', 0.6)
+        .attr('d', (d) => {
+          const s = positions.get(d.src)!;
+          const t = positions.get(d.tgt)!;
+          const dx = t.x - s.x, dy = t.y - s.y;
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          const ux = dx / len, uy = dy / len;
+          const sr = visR(s.depth), tr = visR(t.depth);
+          // Start/end at node perimeter
+          const x1 = s.x + ux * sr, y1 = s.y + uy * sr;
+          const x2 = t.x - ux * tr, y2 = t.y - uy * tr;
+          // Gentle S-curve
+          return `M${x1},${y1} C${x1 + ux * len * 0.4},${y1 + uy * len * 0.4} ${x2 - ux * len * 0.4},${y2 - uy * len * 0.4} ${x2},${y2}`;
+        });
 
-      rootG.append('text')
-        .attr('dy', rootR + 16)
-        .attr('text-anchor', 'middle')
-        .attr('font-size', 12)
-        .attr('font-weight', 'bold')
-        .attr('fill', '#f9fafb')
+      // ── Nodes ──────────────────────────────────────────────────────────────
+      const allNodes = [...positions.entries()].map(([id, pos]) => ({ id, ...pos }));
+
+      const nodeG = rootG.selectAll<SVGGElement, typeof allNodes[0]>('g.node')
+        .data(allNodes)
+        .join('g')
+        .attr('class', 'node')
+        .attr('transform', (d) => `translate(${d.x},${d.y})`);
+
+      nodeG.append('path')
+        .attr('d', (d) => {
+          const r = visR(d.depth);
+          const shape = nodeShape(d.id);
+          return shape === 'circle' ? CIRCLE_PATH(r) : getShapePath(shape, r);
+        })
+        .attr('fill', (d) => nodeColor(d.id))
+        .attr('stroke', '#111827')
+        .attr('stroke-width', (d) => (d.depth === 0 ? 2.5 : 1.5));
+
+      nodeG.append('text')
+        .attr('x', (d) => {
+          if (d.depth === 0) return 0;
+          return d.x >= 0 ? visR(d.depth) + 5 : -(visR(d.depth) + 5);
+        })
+        .attr('dy', (d) => (d.depth === 0 ? 30 : '0.35em'))
+        .attr('text-anchor', (d) => {
+          if (d.depth === 0) return 'middle';
+          return d.x >= 0 ? 'start' : 'end';
+        })
+        .attr('font-size', (d) => (d.depth === 0 ? 12 : d.depth === 1 ? 10 : 9))
+        .attr('font-weight', (d) => (d.depth === 0 ? 'bold' : 'normal'))
+        .attr('fill', '#d1d5db')
         .attr('pointer-events', 'none')
-        .text(nodeLabel(mindmapNodeId));
+        .text((d) => nodeLabel(d.id));
 
       setStatus('idle');
     } catch (e) {
@@ -224,17 +242,37 @@ export function MindmapModal() {
     const svgEl = svgRef.current;
     if (!svgEl) return;
 
-    const W = svgEl.clientWidth  || 1920;
-    const H = svgEl.clientHeight || 1080;
-    const scale = 2;
+    // getBBox() returns coords in the inner g's local space (centred at 0,0).
+    // The inner g has translate(cx,cy), so we offset by cx/cy to get SVG coords.
+    const contentG = svgEl.querySelector('g > g') as SVGGElement | null;
+    if (!contentG) return;
+
+    const { cx, cy } = centerRef.current;
+    const bbox  = contentG.getBBox();
+    const pad   = 80;
+    const vx    = cx + bbox.x - pad;
+    const vy    = cy + bbox.y - pad;
+    const vw    = bbox.width  + 2 * pad;
+    const vh    = bbox.height + 2 * pad;
+
+    // Output: 1920×1080 @ 2× pixel density
+    const outW  = 1920, outH = 1080, scale = 2;
 
     const svgClone = svgEl.cloneNode(true) as SVGElement;
-    svgClone.setAttribute('width',  String(W));
-    svgClone.setAttribute('height', String(H));
+    svgClone.setAttribute('width',   String(outW));
+    svgClone.setAttribute('height',  String(outH));
+    svgClone.setAttribute('viewBox', `${vx} ${vy} ${vw} ${vh}`);
 
-    // Inject background rect and font style
+    // Reset zoom/pan transform on the outer g so the viewBox covers everything
+    const outerG = svgClone.querySelector('g') as SVGGElement | null;
+    if (outerG) outerG.removeAttribute('transform');
+
+    // Background and font
     const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bg.setAttribute('width', String(W)); bg.setAttribute('height', String(H));
+    bg.setAttribute('x',      String(vx));
+    bg.setAttribute('y',      String(vy));
+    bg.setAttribute('width',  String(vw));
+    bg.setAttribute('height', String(vh));
     bg.setAttribute('fill', '#030712');
     svgClone.insertBefore(bg, svgClone.firstChild);
 
@@ -247,16 +285,16 @@ export function MindmapModal() {
     const img  = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
-      canvas.width  = W * scale;
-      canvas.height = H * scale;
+      canvas.width  = outW * scale;
+      canvas.height = outH * scale;
       const ctx = canvas.getContext('2d')!;
       ctx.scale(scale, scale);
       ctx.fillStyle = '#030712';
-      ctx.fillRect(0, 0, W, H);
-      ctx.drawImage(img, 0, 0, W, H);
+      ctx.fillRect(0, 0, outW, outH);
+      ctx.drawImage(img, 0, 0, outW, outH);
       URL.revokeObjectURL(url);
       const a = document.createElement('a');
-      a.href = canvas.toDataURL('image/png');
+      a.href     = canvas.toDataURL('image/png');
       a.download = `mindmap-${mindmapNodeId}.png`;
       a.click();
     };
