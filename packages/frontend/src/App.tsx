@@ -8,7 +8,7 @@ import { api } from './api/client.ts';
 import { canvasActions } from './lib/canvasActions.ts';
 
 export default function App() {
-  const { fetchGraph, nodes } = useGraphStore();
+  const { nodes } = useGraphStore();
   const { assignFromNodes, assignEdgeDefaults } = useMapping();
   const { addToast } = useUiStore();
   const isDark = useSettingsStore((s) => s.isDark);
@@ -18,18 +18,15 @@ export default function App() {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
 
+  // Load schema on startup for edge style defaults — no auto graph fetch
   useEffect(() => {
     api.schema()
-      .then((schema) => {
-        assignEdgeDefaults(schema.relationshipTypes);
-        return fetchGraph(200);
-      })
+      .then((schema) => { assignEdgeDefaults(schema.relationshipTypes); })
       .catch((err) => {
         console.error('[GraphView] Failed to load schema:', err);
         addToast('Could not load schema — edge styles may be missing', 'info');
-        return fetchGraph(200);
       });
-  }, [fetchGraph, assignEdgeDefaults, addToast]);
+  }, [assignEdgeDefaults, addToast]);
 
   // Assign visual mapping whenever graph data changes
   useEffect(() => {

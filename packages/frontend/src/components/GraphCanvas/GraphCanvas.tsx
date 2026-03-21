@@ -157,12 +157,17 @@ function applyLayout(simNodes: SimNode[], layout: LayoutAlgorithm, cx: number, c
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+const EXAMPLE_QUERIES = [
+  'MATCH (a)-[r]->(b) RETURN a, r, b LIMIT 100',
+  'MATCH (n) RETURN n LIMIT 200',
+];
+
 export function GraphCanvas() {
   const svgRef       = useRef<SVGSVGElement>(null);
   const minimapRef   = useRef<HTMLCanvasElement>(null);
   const [minimapVisible, setMinimapVisible] = useState(true);
   const isDark = useSettingsStore((s) => s.isDark);
-  const { nodes, edges } = useGraphStore();
+  const { nodes, edges, loading, runQuery } = useGraphStore();
   const { colorMap, labelShapes, edgeConfig } = useMapping();
   const {
     selectedNodeId, highlightedLabel, searchQuery,
@@ -707,6 +712,29 @@ export function GraphCanvas() {
   return (
     <div className="w-full h-full relative">
       <svg ref={svgRef} className="w-full h-full bg-slate-100 dark:bg-gray-950" style={{ display: 'block' }} />
+
+      {nodes.length === 0 && !loading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <div className="pointer-events-auto text-center space-y-6 max-w-sm px-6">
+            <div>
+              <p className="text-base font-semibold text-gray-400 dark:text-gray-500 mb-1">No data loaded</p>
+              <p className="text-sm text-gray-400 dark:text-gray-600">Run a Cypher query to visualise your graph</p>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400 dark:text-gray-600 uppercase tracking-wider">Example queries</p>
+              {EXAMPLE_QUERIES.map((cypher) => (
+                <button
+                  key={cypher}
+                  onClick={() => runQuery(cypher)}
+                  className="block w-full text-left px-3 py-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded font-mono transition-colors"
+                >
+                  {cypher}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <div className="absolute top-3 right-3 flex flex-col items-end gap-1">
         {minimapVisible && (
           <canvas
