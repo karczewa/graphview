@@ -25,6 +25,7 @@ services:
     environment:
       NODE_ENV: production
       FRONTEND_ORIGIN: http://localhost:3001
+      NEO4J_URI: bolt://neo4j:7687
     restart: unless-stopped
 
 volumes:
