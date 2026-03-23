@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import { rateLimit } from 'express-rate-limit';
+import { resolve, dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 import { config } from './config.js';
 import { healthRouter } from './routes/health.js';
 import { queryRouter } from './routes/query.js';
@@ -39,6 +42,18 @@ app.use('/api/graph', graphRouter);
 app.use('/api/connection', connectionRouter);
 // /api/node/:id and /api/neighbors/:id are registered on graphRouter
 app.use('/api', graphRouter);
+
+// Serve frontend static files in production
+if (process.env['NODE_ENV'] === 'production') {
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const frontendDist = resolve(__dirname, '../../../packages/frontend/dist');
+  if (existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (_req, res) => {
+      res.sendFile(join(frontendDist, 'index.html'));
+    });
+  }
+}
 
 app.use(errorHandler);
 
